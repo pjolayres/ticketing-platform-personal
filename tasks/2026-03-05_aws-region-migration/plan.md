@@ -1091,11 +1091,15 @@ These must be manually reconstructed from password managers, team knowledge, or 
 
 ```bash
 # Template for each failed service:
+# CONNECTION_STRINGS must be a valid JSON string (not bare "PLACEHOLDER") because
+# Phase 3.4 Step 5 runs json.loads() on it. Use the correct dict format with
+# placeholder Host/Password values that the regex replacement will update.
 for env in prod; do
   for svc in access-control automations catalogue customers dp ecwid \
     geidea media organizations reporting transfer; do
+    CONN_PLACEHOLDER='{"PgSql":"User ID=devops;Password=PLACEHOLDER;Host=PLACEHOLDER;Database=PLACEHOLDER;Timeout=300;Pooling=true","ReadonlyPgSql":"User ID=devops;Password=PLACEHOLDER;Host=PLACEHOLDER;Database=PLACEHOLDER;Timeout=300;Pooling=true"}'
     aws secretsmanager create-secret --name "/$env/$svc" \
-      --secret-string '{"CONNECTION_STRINGS":"PLACEHOLDER","TODO":"reconstruct-from-password-manager"}' \
+      --secret-string "{\"CONNECTION_STRINGS\":$(echo "$CONN_PLACEHOLDER" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))'),\"TODO\":\"reconstruct-from-password-manager\"}" \
       --profile AdministratorAccess-660748123249 --region eu-central-1
   done
 done
@@ -1658,6 +1662,12 @@ cdk deploy TP-SlackNotificationStack-prod --require-approval never
 
 **Note:** Services will connect directly to the Aurora cluster endpoint (not RDS Proxy). RDS Proxy is deployed by CDK but remains on standby — the existing architecture uses direct connections and changing to RDS Proxy would be an untested behavioral change during a critical migration. RDS Proxy may be adopted or removed in a future iteration.
 
+**Safety note:** All secret update scripts below pipe Python JSON output to `aws secretsmanager update-secret --secret-string file:///dev/stdin`. If the Python script produces malformed JSON (e.g., from special characters or newlines in secret values), the secret will be silently corrupted. Before running each update block, consider validating the output first:
+```bash
+# Dry-run pattern: replace "| aws secretsmanager update-secret ..." with "| python3 -c 'import json,sys; json.load(sys.stdin); print(\"VALID\")'"
+# to verify all secrets produce valid JSON before writing.
+```
+
 ```bash
 P="--profile AdministratorAccess-660748123249 --region eu-central-1"
 
@@ -1826,7 +1836,7 @@ done
 
 **Verification:**
 ```bash
-# Verify CONNECTION_STRINGS point to new RDS Proxy endpoint
+# Verify CONNECTION_STRINGS point to new Aurora cluster endpoint
 for env in prod; do
   echo "=== $env ==="
   for svc in access-control catalogue customers dp extensions integration \
@@ -1926,7 +1936,7 @@ Test everything via `*.production-eu.tickets.mdlbeast.net` — no live DNS is af
 - [ ] CloudWatch logs populating in eu-central-1
 - [ ] Extension deployer creates Lambda in eu-central-1
 
-**Note:** Dashboard and Distribution Portal cannot be fully tested yet — they point to `api.production.tickets.mdlbeast.net` (the real domain). Test backend APIs directly via the temporary domain or API Gateway URLs. Dashboard can be tested in Phase 4 after DNS cutover.
+**Dashboard testing:** Run the Dashboard locally with `.env` pointing to `api.production-eu.tickets.mdlbeast.net` (the temporary domain) to test the full E2E flow against the eu-central-1 backend during this phase. This avoids waiting until Phase 4 (DNS cutover) for the first Dashboard validation.
 
 ### Phase 3 Verification Checklist
 
@@ -2246,7 +2256,7 @@ aws ssm get-parameter --name "/prod/tp/extensions/EXTENSION_DEFAULT_ROLE" $P
 # The deployer Lambda (now in eu-central-1) will recreate Extension_{id} Lambdas
 ```
 
-Do this after Phase 3.7 (dev/sandbox) and Phase 5.7 (prod).
+Do this after Phase 3.6 validation (prod) and Phase 5.3 (dev/sandbox).
 
 ---
 

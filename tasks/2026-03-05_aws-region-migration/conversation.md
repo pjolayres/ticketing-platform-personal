@@ -99,3 +99,52 @@ Use AWS CLI with `--profile AdministratorAccess-660748123249 --region me-south-1
 "pdf-tickets-prod Bucket Does Not Exist"
 - Verify where "pdf-tickets-prod" is being used.
 - If "tickets-pdf-download" is the correct one, we'll use that instead
+
+=======
+
+See the following concerns on the plan:
+
+high priority:>
+
+1. ecwid missing from CONNECTION_STRINGS service list
+```
+  Phase 3.4 step 5 loops over 16 services for connection string updates, including ecwid. But the Phase 2.3 backup status table
+  shows ecwid as FAILED (line 600). The reconstructed placeholder secret for ecwid has "CONNECTION_STRINGS":"PLACEHOLDER" — when
+  the Phase 3.4 Python script runs json.loads() on that, it'll fail because "PLACEHOLDER" is not valid JSON (it's a plain string,
+  not the expected {"PgSql":"...","ReadonlyPgSql":"..."} dict). The except json.JSONDecodeError catch handles this, but it will do
+  a regex replace on "PLACEHOLDER" looking for Host= which won't match — the connection string will remain PLACEHOLDER.
+
+  Fix: The Phase 3.4 script needs to handle the case where a secret was reconstructed with a bare placeholder. Or better: Phase 2.3
+   Step 4 should create the placeholder in the correct JSON dict format.
+```
+
+2. file:///dev/stdin in secret update scripts
+```
+  The pattern aws secretsmanager update-secret --secret-string file:///dev/stdin works, but if any Python script produces malformed
+   JSON (e.g., a secret with special characters or newlines), the pipe will silently produce a corrupted secret. Consider adding a
+  | python3 -c "import json,sys; json.load(sys.stdin)" validation step before the update.
+```
+
+medium priority:
+
+3. Dashboard testing gap
+```
+  Phase 3.6 notes that the Dashboard "cannot be fully tested yet" since it points to the real production domain. But this means
+  Phase 4 (DNS cutover) is the first time the Dashboard is tested end-to-end — at the critical point of no return. Consider
+  temporarily configuring the Dashboard to point to api.production-eu.tickets.mdlbeast.net during Phase 3 testing.
+```
+- I can run dashboard locally while pointing local .env to the production environment in eu-central-1. that way, I can tests end-to-end in phase 3.
+
+low priority:
+
+4. Phase reference errors in post-migration
+```
+  Line 2138: "Phase 3.7 (dev/sandbox) and Phase 5.7 (prod)" — there is no Phase 3.7 or 5.7. Should be Phase 5 (dev/sandbox) and
+  Phase 3/4 (prod).
+```
+
+5. Verification comment says "RDS Proxy" but uses direct Aurora
+```
+  Phase 3.4 verification comment says "Verify CONNECTION_STRINGS point to new RDS Proxy endpoint" but the actual implementation
+  uses direct Aurora endpoints. The comments should be consistent.
+```
