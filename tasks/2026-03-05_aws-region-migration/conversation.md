@@ -51,7 +51,7 @@ Do a comprehensive review of `.personal/tasks/2026-03-05_aws-region-migration/pl
 
 =======
 
-1. Gateway SSM Certificate Path Mismatch
+1. Gateway SSM Certificate Path"Mismatch
    - Where did the idea that it should be stored in `/prod/tp/DomainCertificateArn` come from? is this an existing bug or an oversight in the planning process?
 
 2. GatewayStack has duplicate domain conditional at line 107
@@ -79,3 +79,23 @@ Do a comprehensive review of `.personal/tasks/2026-03-05_aws-region-migration/pl
 
 9. Infrastructure CDK stack deployment order (Phase 3.3) — Slack/XRay inverted
    - Update the plan based on the suggestion
+
+=======
+
+Use AWS CLI with `--profile AdministratorAccess-660748123249 --region me-south-1` in read-only mode to verify the current state of the production environment. Use it to check existing resources created by either terraform or CDK.
+- It is very important that you only use AWS CLI for this task for discovery purposes. DO NOT MAKE ANY CHANGES TO THE PRODUCTION ENVIRONMENT.
+- me-south-1 is degraded right now with multiple AZ being down. Some AWS CLI might return HTTP 500 or internal server errors. However, most list-returned queries still work (e.g. list of s3 buckets, list of SQS queues, lambda functions, etc.).
+
+=======
+
+"ticketing-prod-media Has NO Backup in eu-central-1"
+- This is fine. the bucket does not have much information. It can be recreated from scratch without losing important data.
+
+"Additionally, the S3 backup dates for the available buckets are from 2026-03-04 (not
+  2026-03-23 as the backup protected-resources list shows). The S3 backup copies may have
+  stopped replicating to eu-central-1 around the time of the outage"
+- are you sure? the latest backup of tickets-pdf-download in eu-central-1 is March 23, 2026, 19:40:00 (UTC+08:00). Check "arn:aws:backup:eu-central-1:660748123249:recovery-point:tickets-pdf-download-20260323151651-637643d2" and "arn:aws:backup:eu-central-1:660748123249:recovery-point:ticketing-csv-reports-20260323143318-4e11cf80" for example
+
+"pdf-tickets-prod Bucket Does Not Exist"
+- Verify where "pdf-tickets-prod" is being used.
+- If "tickets-pdf-download" is the correct one, we'll use that instead

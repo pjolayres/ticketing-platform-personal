@@ -5,7 +5,7 @@
 - [Complete "me-south-1" Reference Inventory](#complete-me-south-1-reference-inventory)
   - [Category 1: Terraform Files](#category-1-terraform-files)
   - [Category 2: CDK env-var JSON Files (~40 files)](#category-2-cdk-env-var-json-files-40-files)
-  - [Category 3: aws-lambda-tools-defaults.json (32+ files)](#category-3-aws-lambda-tools-defaultsjson-32-files)
+  - [Category 3: aws-lambda-tools-defaults.json (42 files)](#category-3-aws-lambda-tools-defaultsjson-42-files)
   - [Category 4: Infrastructure C# Code (2 files)](#category-4-infrastructure-c-code-2-files)
   - [Category 5: Test Files (lower priority, ~6 files)](#category-5-test-files-lower-priority-6-files)
   - [Category 6: ConfigMap YAML Files](#category-6-configmap-yaml-files)
@@ -24,7 +24,27 @@
   - [OpenSearch/Elasticsearch](#opensearchelasticsearch)
 - [S3 Bucket Naming Strategy](#s3-bucket-naming-strategy)
 - [Phase 1: Code Preparation (No Infrastructure Changes)](#phase-1-code-preparation-no-infrastructure-changes)
-  - [Tasks](#tasks)
+  - [Repositories Requiring Branch `hotfix/region-migration-eu-central-1`](#repositories-requiring-branch-hotfixregion-migration-eu-central-1)
+  - [Task 1: Update Terraform Region References](#task-1-update-terraform-region-references)
+  - [Task 2: EKS Deprecation in terraform-prod](#task-2-eks-deprecation-in-terraform-prod)
+  - [Task 3: EKS Deprecation Cleanup in terraform-dev](#task-3-eks-deprecation-cleanup-in-terraform-dev)
+  - [Task 4: Update CDK env-var JSON Files (STORAGE\_REGION)](#task-4-update-cdk-env-var-json-files-storage_region)
+  - [Task 5: Update aws-lambda-tools-defaults.json](#task-5-update-aws-lambda-tools-defaultsjson)
+  - [Task 6: Update Infrastructure C# Code](#task-6-update-infrastructure-c-code)
+  - [Task 7: Update Test Files (lower priority)](#task-7-update-test-files-lower-priority)
+  - [Task 8: Update ConfigMap YAML Files](#task-8-update-configmap-yaml-files)
+  - [Task 9: Update Mobile Scanner CI/CD](#task-9-update-mobile-scanner-cicd)
+  - [Task 10: Update Dashboard CSP and .env Files](#task-10-update-dashboard-csp-and-env-files)
+  - [Task 11: Delete CDK Context Caches](#task-11-delete-cdk-context-caches)
+  - [Task 12: Update CI/CD Templates and ConfigMap Workflows](#task-12-update-cicd-templates-and-configmap-workflows)
+  - [Task 13: Update Local Development Settings (lowest priority)](#task-13-update-local-development-settings-lowest-priority)
+  - [Task 14: Security Remediation](#task-14-security-remediation)
+  - [Task 15: Temporarily Exclude RDS Cluster from Terraform](#task-15-temporarily-exclude-rds-cluster-from-terraform)
+  - [Task 16: Set Temporary `production-eu` Domain Mapping in CDK](#task-16-set-temporary-production-eu-domain-mapping-in-cdk)
+  - [Task 17: Run Tests](#task-17-run-tests)
+  - [Task 18: Verify Zero me-south-1 References](#task-18-verify-zero-me-south-1-references)
+  - [Task 19: Merge and Publish `ticketing-platform-tools` NuGet Package](#task-19-merge-and-publish-ticketing-platform-tools-nuget-package)
+  - [Task 20: DO NOT Merge Other Repos Yet](#task-20-do-not-merge-other-repos-yet)
 - [Phase 2: Production Foundation \& Data Restore](#phase-2-production-foundation--data-restore)
   - [2.1 Service Quota Pre-Checks](#21-service-quota-pre-checks)
   - [2.2 Create Terraform State Bucket](#22-create-terraform-state-bucket)
@@ -426,14 +446,13 @@ S3 bucket names are globally unique. Cannot reuse names while old buckets exist.
 |---|---|---|
 | `dev-pdf-tickets` | `dev-pdf-tickets-eu` | Dev PDF tickets |
 | `sandbox-pdf-tickets` | `sandbox-pdf-tickets-eu` | Sandbox PDF tickets |
-| `pdf-tickets-prod` | `pdf-tickets-prod-eu` | Prod PDF tickets |
-| `tickets-pdf-download` | `tickets-pdf-download-eu` | Prod PDF download |
+| `tickets-pdf-download` | `tickets-pdf-download-eu` | Prod PDF download (CloudFront origin) |
 | `pdf-tickets-download` | `pdf-tickets-download-eu` | Dev PDF download |
 | `ticketing-dev-csv-reports` | `ticketing-dev-csv-reports-eu` | Dev CSV reports |
 | `ticketing-sandbox-csv-reports` | `ticketing-sandbox-csv-reports-eu` | Sandbox CSV reports |
 | `ticketing-csv-reports` | `ticketing-csv-reports-eu` | Prod CSV reports |
 | `ticketing-{env}-media` | `ticketing-{env}-media-eu` | Media uploads |
-| `ticketing-{env}-extended-message` | CDK creates with new name | Large event payloads |
+| `ticketing-{env}-extended-message` | `ticketing-{env}-extended-message-eu` | Large event payloads (CDK code change required) |
 | `ticketing-terraform-dev` | `ticketing-terraform-dev-eu` | Terraform state |
 | `ticketing-terraform-prod` | `ticketing-terraform-prod-eu` | Terraform state |
 | `ticketing-terraform-github` | `ticketing-terraform-github-eu` | Terraform CI/CD artifact sync |
@@ -451,95 +470,459 @@ S3 bucket names are globally unique. Cannot reuse names while old buckets exist.
 
 **Duration:** 1-2 days | **Risk:** LOW | **Rollback:** Revert git commits
 
-### Tasks
+### Repositories Requiring Branch `hotfix/region-migration-eu-central-1`
 
-1. **Create feature branches** in each repo: `feature/region-migration-eu-central-1`
+34 repositories require code changes. Create the branch from each repo's **current branch** (typically `master` for production services, but may vary):
 
-2. **Update all hardcoded references** (Categories 1-12 above)
-   - Terraform files (both repos, including EKS/Redis/OpenSearch removal)
-   - CDK env-var JSON files (bulk script for `STORAGE_REGION`; **manual update for bucket names** — see S3 Bucket Naming Strategy)
-   - aws-lambda-tools-defaults.json (bulk script)
-   - Infrastructure C# code
-   - Mobile scanner CI/CD
-   - Dashboard `vercel.json` (CSP S3 URLs: update both region AND bucket names) and `.env` files
-   - Delete CDK context caches
-   - CI/CD templates repo (`deploy.yml`, `k8s.yml`)
-   - `ticketing-platform-terraform-prod/prod/s3.tf` — rename `ticketing-terraform-github` to `ticketing-terraform-github-eu`
+```bash
+# Script to create branches in all affected repos
+# Branches from the current HEAD of whatever branch is checked out (usually master/production)
+for repo in \
+  ticketing-platform-access-control \
+  ticketing-platform-automations \
+  ticketing-platform-catalogue \
+  ticketing-platform-configmap-dev \
+  ticketing-platform-configmap-prod \
+  ticketing-platform-configmap-sandbox \
+  ticketing-platform-csv-generator \
+  ticketing-platform-customer-service \
+  ticketing-platform-dashboard \
+  ticketing-platform-distribution-portal \
+  ticketing-platform-extension-api \
+  ticketing-platform-extension-deployer \
+  ticketing-platform-extension-executor \
+  ticketing-platform-extension-log-processor \
+  ticketing-platform-gateway \
+  ticketing-platform-geidea \
+  ticketing-platform-infrastructure \
+  ticketing-platform-integration \
+  ticketing-platform-inventory \
+  ticketing-platform-loyalty \
+  ticketing-platform-marketplace-service \
+  ticketing-platform-media \
+  ticketing-platform-mobile-scanner \
+  ticketing-platform-organizations \
+  ticketing-platform-pdf-generator \
+  ticketing-platform-pricing \
+  ticketing-platform-reporting-api \
+  ticketing-platform-sales \
+  ticketing-platform-templates-ci-cd \
+  ticketing-platform-terraform-dev \
+  ticketing-platform-terraform-prod \
+  ticketing-platform-tools \
+  ticketing-platform-transfer \
+  ecwid-integration; do
+  (cd "$repo" && git pull && git checkout -b hotfix/region-migration-eu-central-1)
+done
+```
 
-3. **EKS deprecation in terraform-prod** (following terraform-dev pattern from `d01f7df`):
-   - Delete `opensearch.tf`, `redis.tf`, `waf.tf`, `msk.tf`, `runner.tf`, `ecr.tf`
-   - Rename `eks-subnet.tf` → `lambda-subnet.tf`, update tags
-   - Remove EKS IAM policies from `user-cicd.tf`, `iam-s3-sqs.tf`
-   - Remove EKS subnet references from `rds.tf` security group rules
-   - Remove `techlead-redis`, `developer-opensearch` from `group.tf`
-   - Remove `terraform_opensearch` and `terraform_redis` outputs from `secretmanager.tf`
+**Repos NOT changed (no branch needed):**
+- `ticketing-platform-distribution-portal-frontend` — deploys via Vercel, no region references
+- `ticketing-platform-mobile-libraries` — shared native modules, no region references
+- `ticketing-platform-shared` — no region references
+- `ticketing-work-smart-scripts` — not a service
+- `ticketing-platform-xp-badges` — excluded from migration (deprecated)
+- `ticketing-platform-bandsintown-integration` — excluded from migration (deprecated)
+- `ticketing-platform-marketing-feeds` — excluded from migration (deprecated)
 
-4. **EKS deprecation cleanup in terraform-dev:**
-   - Remove `iam-eks.tf` (orphaned)
-   - Remove `s3-sqs-eks` policy from `iam-s3-sqs.tf`
-   - Remove EKS subnet CIDR references from `rds.tf`
-   - Remove `kubernetes.io/role/elb` tags from `nat.tf`
+---
 
-5. **Security remediation:**
-   - Add `.tfstate` and `.tfstate.backup` to `.gitignore` in both Terraform repos
-   - Remove plaintext credentials from `configmap-prod/manifests-new/sales.yml`
-   - Fix S3 lifecycle bug in `terraform-dev/dev/s3.tf:246`
-   - (Prod plaintext creds in `variables.tf` — address in Phase 4.3)
+### Task 1: Update Terraform Region References
 
-6. **Disable ConfigMap CI/CD workflows:**
-   - Remove or disable `ci.yml` in configmap-dev, configmap-sandbox, configmap-prod
-   - Remove or disable `disaster.yml` in configmap-prod
+**Repos:** `ticketing-platform-terraform-prod`, `ticketing-platform-terraform-dev`
 
-7. **Run all tests** to verify code changes don't break anything:
-   ```bash
-   # .NET services
-   dotnet test
-   # Dashboard
-   npm run test && npm run typescript
-   ```
+| File | What to Change |
+|------|---------------|
+| `ticketing-platform-terraform-prod/prod/main.tf:7` | Backend bucket → `ticketing-terraform-prod-eu` |
+| `ticketing-platform-terraform-prod/prod/main.tf:9,16` | Backend region + provider region → `eu-central-1` |
+| `ticketing-platform-terraform-prod/prod/variables.tf:42,47,52` | AZ defaults → `eu-central-1a/b/c` |
+| `ticketing-platform-terraform-prod/prod/variables.tf:65` | AMI ID → eu-central-1 equivalent |
+| `ticketing-platform-terraform-prod/prod/rds.tf:200` | `availability_zones` → `["eu-central-1a","eu-central-1b","eu-central-1c"]` |
+| `ticketing-platform-terraform-prod/prod/secretmanager.tf:4` | Hardcoded ARN → name-based lookup |
+| `ticketing-platform-terraform-prod/prod/s3.tf` | Rename `ticketing-terraform-github` bucket to `ticketing-terraform-github-eu` |
+| `ticketing-platform-terraform-dev/dev/main.tf:5` | Backend bucket → `ticketing-terraform-dev-eu` |
+| `ticketing-platform-terraform-dev/dev/main.tf:7,14` | Backend region + provider region → `eu-central-1` |
+| `ticketing-platform-terraform-dev/dev/variables.tf:42,47,52` | AZ defaults → `eu-central-1a/b/c` |
+| `ticketing-platform-terraform-dev/dev/variables.tf:64` | AMI ID → eu-central-1 equivalent |
+| `ticketing-platform-terraform-dev/dev/rds.tf:162` | `availability_zones` → `["eu-central-1a","eu-central-1b","eu-central-1c"]` |
+| `ticketing-platform-terraform-dev/dev/secretmanager.tf:2` | Hardcoded ARN → name-based lookup |
 
-8. **Verify** zero `me-south-1` references remain in deployable code:
-   ```bash
-   grep -r "me-south-1" --include="*.tf" --include="*.cs" --include="*.json" \
-     --include="*.yml" --include="*.yaml" \
-     --exclude-dir={.terraform,node_modules,bin,obj,cdk.out,.git,helm} \
-     | grep -v "configmap-" | grep -v "README"
-   ```
+---
 
-9. **Temporarily exclude RDS cluster from Terraform** (prevents empty cluster creation — will restore from backup instead):
-   - In `ticketing-platform-terraform-dev/dev/rds.tf`: comment out `aws_rds_cluster "ticketing"` and `aws_rds_cluster_instance "ticketing"` resource blocks. **Keep** the `aws_db_subnet_group`, `aws_security_group`, and any `aws_security_group_rule` resources — these are needed for the backup restore.
-   - In `ticketing-platform-terraform-prod/prod/rds.tf`: same — comment out cluster + instance blocks, keep subnet group + security group.
-   - **Why:** `terraform apply` would create an empty RDS cluster. AWS Backup restore creates a *separate* cluster (you cannot restore into an existing cluster). Commenting out avoids the conflict. After backup restore, we `terraform import` the restored cluster, then uncomment the resources.
+### Task 2: EKS Deprecation in terraform-prod
 
-10. **Set temporary `production-eu` domain mapping in CDK** (allows full testing before touching live DNS):
+**Repo:** `ticketing-platform-terraform-prod`
 
-    Change `"production"` to `"production-eu"` in the env-to-domain mapping in these 7 files:
+Following the pattern from terraform-dev commit `d01f7df` ("chore: attempt to disable eks"):
 
-    | File | Current | Change to |
-    |------|---------|-----------|
-    | `ticketing-platform-tools/TP.Tools.Infrastructure/Helpers/ServerlessApiStackHelper.cs:47` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
-    | `ticketing-platform-gateway/src/Gateway.Cdk/Stacks/GatewayStack.cs:32` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
-    | `ticketing-platform-gateway/src/Gateway.Cdk/Stacks/GatewayStack.cs:107` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
-    | `ticketing-platform-infrastructure/TP.Infrastructure.Cdk/Stacks/InternalHostedZoneStack.cs:15` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
-    | `ticketing-platform-infrastructure/TP.Infrastructure.Cdk/Stacks/InternalCertificateStack.cs:15` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
-    | `ticketing-platform-geidea/src/TP.Geidea.Cdk/Stacks/ApiStack.cs:32` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
-    | `ecwid-integration/src/TP.Ecwid.Cdk/Stacks/ApiStack.cs:32` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
+**Files to DELETE entirely:**
 
-    **Note:** GatewayStack has two occurrences of the domain conditional (lines 32 and 107). Line 107 is in `CreateCustomDomain()` where it derives the SSM path for the certificate ARN. Both must be updated.
+| File | Resources Removed |
+|------|-------------------|
+| `prod/opensearch.tf` | 3 subnets (`opensearch-1a/1b/1c-prod`), 1 security group (`opensearchprod`) |
+| `prod/redis.tf` | 2 subnets (`redis-1a/1b-prod`), 1 security group (`redisprod`) |
+| `prod/waf.tf` | WAF ACL, IP sets, rules (all reference me-south-1 ALB ARNs) |
+| `prod/msk.tf` | MSK subnets + security group (marked `/// probably delete`) |
+| `prod/runner.tf` | 2 subnets, 2 EC2 instances (`runner-1a/1b`), 1 security group |
+| `prod/ecr.tf` | 2 ECR repos (`ticketing-platform-ecr`, `helm-chart`) |
 
-    **Note:** `xp-badges`, `bandsintown-integration`, and `marketing-feeds` are excluded from migration (deprecated services).
+**Files to MODIFY:**
 
-    **What this changes:** Only the domain names used for API Gateway custom domains, Route53 records, and ACM certificates. All other identifiers (secret paths `/prod/*`, SSM paths `/prod/tp/*`, stack names, Lambda names, queue names) remain unchanged.
+| File | Change |
+|------|--------|
+| `prod/eks-subnet.tf` | **RENAME** → `prod/lambda-subnet.tf`. Keep 3 subnets + route table associations; update resource names and tags from `eks-subnet-*` to `lambda-subnet-*` |
+| `prod/user-cicd.tf` | Remove `aws_iam_policy.ci-cd-eks` resource and its attachment. Keep CICD user (needed for CDK deploys) |
+| `prod/iam-s3-sqs.tf` | Remove `aws_iam_policy.s3-sqs-eks` — was for EKS service account S3/SQS access |
+| `prod/rds.tf:57,64,71` | Remove 3 security group ingress rules referencing `aws_subnet.eks-1a/1b/1c-prod.cidr_block` |
+| `prod/group.tf:33-35` | Remove `techlead-redis` IAM group policy attachment |
+| `prod/group.tf:81-84` | Remove `developer-opensearch` IAM group policy attachment |
+| `prod/secretmanager.tf:19-27` | Remove `output.terraform_opensearch` and `output.terraform_redis` |
 
-    **Important:** GatewayStack uses the **mapped** env name (e.g., `production-eu`) for its SSM certificate path: `/{envName}/tp/DomainCertificateArn`. This means the Gateway certificate SSM parameter must be stored at `/production-eu/tp/DomainCertificateArn` (not `/prod/tp/...`). All other services (Geidea, Ecwid) use the raw env for their SSM paths (`/prod/tp/{service}/DomainCertificateArn`).
+---
 
-    **What this produces:**
-    - `api.production-eu.tickets.mdlbeast.net` (gateway)
-    - `geidea.production-eu.tickets.mdlbeast.net` (geidea)
-    - `ecwid.production-eu.tickets.mdlbeast.net` (ecwid — via `ecwid-integration`)
-    - `*.internal.production-eu.tickets.mdlbeast.net` (all internal services)
+### Task 3: EKS Deprecation Cleanup in terraform-dev
 
-11. **DO NOT merge yet.** Keep on feature branches until infrastructure is ready.
+**Repo:** `ticketing-platform-terraform-dev`
+
+| File | Change |
+|------|--------|
+| `dev/iam-eks.tf` | **DELETE** entirely (orphaned IAM policy from incomplete EKS removal) |
+| `dev/iam-s3-sqs.tf` | Remove `s3-sqs-eks` policy resource and data source |
+| `dev/rds.tf:33,47,54` | Remove security group ingress rules referencing `eks-*` subnet CIDRs |
+| `dev/nat.tf:8,75,126` | Remove `"kubernetes.io/role/elb" = "1"` tags from all 3 NAT subnets |
+
+---
+
+### Task 4: Update CDK env-var JSON Files (STORAGE_REGION)
+
+**Repos (14):** `ticketing-platform-access-control`, `ticketing-platform-automations`, `ticketing-platform-customer-service`, `ticketing-platform-geidea`, `ticketing-platform-integration`, `ticketing-platform-loyalty`, `ticketing-platform-marketplace-service`, `ticketing-platform-media`, `ticketing-platform-pricing`, `ticketing-platform-reporting-api`, `ticketing-platform-sales`, `ticketing-platform-transfer`, `ticketing-platform-tools`, `ecwid-integration`
+
+**Bulk script** (run from monorepo root):
+```bash
+find . -name "env-var.*.json" -not -path "*/node_modules/*" -not -path "*/.terraform/*" \
+  -not -path "*/bin/*" -not -path "*/obj/*" -not -path "*/cdk.out/*" \
+  -exec grep -l "me-south-1" {} \; | while read f; do
+  sed -i '' 's/"STORAGE_REGION": "me-south-1"/"STORAGE_REGION": "eu-central-1"/g' "$f"
+done
+```
+
+**Manual bucket name updates** (NOT covered by the bulk script above):
+
+| File | Variable | Old Value | New Value |
+|------|----------|-----------|-----------|
+| `ticketing-platform-media/src/TP.Media.Cdk/env-var.prod.json` | `MEDIA_STORAGE_BUCKET_NAME` | `ticketing-prod-media` | `ticketing-prod-media-eu` |
+| `ticketing-platform-media/src/TP.Media.Cdk/env-var.prod.json` | `STORAGE_BUCKET_NAME` | `tickets-pdf-download` | `tickets-pdf-download-eu` |
+| `ticketing-platform-media/src/TP.Media.Cdk/env-var.prod.json` | `STORAGE_BUCKET_NAME_PDF` | `tickets-pdf-download` | `tickets-pdf-download-eu` |
+| `ticketing-platform-integration/src/TP.Integration.Cdk/env-var.prod.json` | `STORAGE_BUCKET_NAME` | `tickets-pdf-download` | `tickets-pdf-download-eu` |
+
+---
+
+### Task 5: Update aws-lambda-tools-defaults.json
+
+**Repos (22):** `ticketing-platform-access-control`, `ticketing-platform-csv-generator`, `ticketing-platform-customer-service`, `ticketing-platform-distribution-portal`, `ticketing-platform-extension-api`, `ticketing-platform-extension-deployer`, `ticketing-platform-extension-executor`, `ticketing-platform-extension-log-processor`, `ticketing-platform-gateway`, `ticketing-platform-geidea`, `ticketing-platform-integration`, `ticketing-platform-inventory`, `ticketing-platform-loyalty`, `ticketing-platform-marketplace-service`, `ticketing-platform-media`, `ticketing-platform-organizations`, `ticketing-platform-pdf-generator`, `ticketing-platform-pricing`, `ticketing-platform-reporting-api`, `ticketing-platform-sales`, `ticketing-platform-transfer`, `ecwid-integration`
+
+**Bulk script** (run from monorepo root):
+```bash
+find . -name "aws-lambda-tools-defaults.json" \
+  -not -path "*/node_modules/*" -not -path "*/.terraform/*" \
+  -not -path "*/bin/*" -not -path "*/obj/*" -not -path "*/cdk.out/*" \
+  -exec grep -l "me-south-1" {} \; | while read f; do
+  sed -i '' 's/"region": "me-south-1"/"region": "eu-central-1"/g' "$f"
+done
+```
+
+---
+
+### Task 6: Update Infrastructure C# Code
+
+**Repo:** `ticketing-platform-infrastructure`
+
+| File | Line | Change |
+|------|------|--------|
+| `TP.Infrastructure.SlackNotifier/Services/EnvironmentService.cs` | 24 | `?? "me-south-1"` → `?? "eu-central-1"` |
+| `TP.Infrastructure.SlackNotifier/Services/XRayInsightSlackService.cs` | 58 | `?? "me-south-1"` → `?? "eu-central-1"` |
+| `TP.Infrastructure.Cdk/Stacks/ExtendedMessageS3BucketStack.cs` | 17 | `BucketName = $"ticketing-{env}-extended-message"` → `BucketName = $"ticketing-{env}-extended-message-eu"` |
+
+**Why the ExtendedMessage bucket name change:** S3 bucket names are globally unique. The me-south-1 bucket `ticketing-prod-extended-message` still exists, so CDK would fail trying to create a bucket with the same name in eu-central-1. Adding the `-eu` suffix avoids the collision.
+
+**Runtime references that also need updating** (in `ticketing-platform-tools` — published via NuGet, consumed by all services):
+
+| File | Line | Change |
+|------|------|--------|
+| `TP.Tools.MessageBroker/Implementations/SqsQueueService.cs` | 190 | `$"ticketing-{_envName}-extended-message"` → `$"ticketing-{_envName}-extended-message-eu"` |
+| `TP.Tools.MessageBroker/Implementations/MessageProducer.cs` | 210 | `$"ticketing-{_envName}-extended-message"` → `$"ticketing-{_envName}-extended-message-eu"` |
+
+The IAM policy in `LambdaS3ExtendedMessagePolicyStatement.cs:26-27` uses wildcard `ticketing-*-extended-message` which does **NOT** match `ticketing-prod-extended-message-eu` (the `-eu` comes after the literal `message` ending). This must also be updated:
+
+| File | Line | Change |
+|------|------|--------|
+| `TP.Tools.Infrastructure/Consumers/Policies/LambdaS3ExtendedMessagePolicyStatement.cs` | 26 | `ticketing-*-extended-message` → `ticketing-*-extended-message-eu` |
+| Same file | 27 | `ticketing-*-extended-message/*` → `ticketing-*-extended-message-eu/*` |
+
+**Note:** These changes are in `ticketing-platform-tools` and will be published as part of Task 19 (NuGet publish). All services pick up the new bucket name via the updated NuGet package.
+
+---
+
+### Task 7: Update Test Files (lower priority)
+
+**Repos (6):** `ticketing-platform-media`, `ticketing-platform-catalogue`, `ticketing-platform-organizations`, `ticketing-platform-inventory`, `ticketing-platform-pricing`, `ticketing-platform-infrastructure`, `ticketing-platform-tools`, `ticketing-platform-integration`
+
+| File | Lines |
+|------|-------|
+| `ticketing-platform-media/src/Tests/TP.Media.IntegrationTests/ApplicationFactory.cs` | 28-29 |
+| `ticketing-platform-catalogue/src/Tests/TP.Catalogue.IntegrationTests/ApplicationFactory.cs` | 39-40 |
+| `ticketing-platform-organizations/src/Organizations/Tests/TP.Organizations.IntegrationTests/ApplicationFactory.cs` | 37-38 |
+| `ticketing-platform-inventory/src/Tests/TP.Inventory.IntegrationTests/ApplicationFactory.cs` | 58-59 |
+| `ticketing-platform-pricing/src/Tests/TP.Pricing.IntegrationTests/ApplicationFactory.cs` | 116-117 |
+| `ticketing-platform-infrastructure/TP.Infrastructure.Tests/SlackNotifier/` | Multiple test files |
+| `ticketing-platform-tools/UnitTests/Infrastructure/Consumers/LambdaUtilitiesTests.cs` | 252 |
+| `ticketing-platform-integration/src/TP.Integration.IntegrationTests/.../WhatsAppServiceTests.cs` | 139 |
+
+---
+
+### Task 8: Update ConfigMap YAML Files
+
+**Repos:** `ticketing-platform-configmap-dev`, `ticketing-platform-configmap-sandbox`, `ticketing-platform-configmap-prod`
+
+**Dev — `ticketing-platform-configmap-dev`:**
+- `manifests/{access-control,integration,media,reporting,sales,transfer}-dev.yml` — `STORAGE_REGION: me-south-1` → `eu-central-1`
+- `secretstore.yml` — `region: me-south-1` → `eu-central-1`
+
+**Sandbox — `ticketing-platform-configmap-sandbox`:**
+- `manifests/{integration,media,reporting,sales,transfer}-sandbox.yml` — `STORAGE_REGION: me-south-1` → `eu-central-1`
+- `secretstore.yml` — `region: me-south-1` → `eu-central-1`
+
+**Prod — `ticketing-platform-configmap-prod`:**
+- `manifests-new/{integration,media,reporting,sales,transfer}.yml` — `STORAGE_REGION: me-south-1` → `eu-central-1`
+- `manifests-new/sales.yml` — also has `Logging__Elasticsearch__Uri` with me-south-1 OpenSearch endpoint (remove — see Task 12)
+
+**Note:** With EKS deprecated, these ConfigMap repos become archival. Update for correctness, but these manifests will no longer be deployed.
+
+---
+
+### Task 9: Update Mobile Scanner CI/CD
+
+**Repo:** `ticketing-platform-mobile-scanner`
+
+| File | Lines | Change |
+|------|-------|--------|
+| `.github/workflows/release-build.yml` | 172 | `s3.me-south-1.amazonaws.com` → `s3.eu-central-1.amazonaws.com` |
+| `.github/workflows/release-build.yml` | 200 | `AWS_DEFAULT_REGION: me-south-1` → `AWS_DEFAULT_REGION: eu-central-1` |
+| `.github/workflows/release-build.yml` | 208 | `AWS_DEFAULT_REGION: me-south-1` → `AWS_DEFAULT_REGION: eu-central-1` |
+
+---
+
+### Task 10: Update Dashboard CSP and .env Files
+
+**Repo:** `ticketing-platform-dashboard`
+
+**`vercel.json:24`** — 6 S3 URLs in CSP `connect-src` (update both region AND bucket names):
+- `dev-pdf-tickets.s3.me-south-1.amazonaws.com` → `dev-pdf-tickets-eu.s3.eu-central-1.amazonaws.com`
+- `tickets-pdf-download.s3.me-south-1.amazonaws.com` → `tickets-pdf-download-eu.s3.eu-central-1.amazonaws.com`
+- `sandbox-pdf-tickets.s3.me-south-1.amazonaws.com` → `sandbox-pdf-tickets-eu.s3.eu-central-1.amazonaws.com`
+- `ticketing-sandbox-media.s3.me-south-1.amazonaws.com` → `ticketing-sandbox-media-eu.s3.eu-central-1.amazonaws.com`
+- `ticketing-dev-media.s3.me-south-1.amazonaws.com` → `ticketing-dev-media-eu.s3.eu-central-1.amazonaws.com`
+- `ticketing-prod-media.s3.me-south-1.amazonaws.com` → `ticketing-prod-media-eu.s3.eu-central-1.amazonaws.com`
+
+**`.env:9`** — `MEDIA_HOST` with me-south-1 API Gateway URL → update after new endpoints exist
+**`.env.sandbox:9`** — same
+**`.env.development:10,28`** — API Gateway URLs → update after new endpoints exist
+
+---
+
+### Task 11: Delete CDK Context Caches
+
+**Repos:** `ticketing-platform-infrastructure`, `ticketing-platform-gateway`, `ticketing-platform-media`
+
+Delete these auto-generated cache files (they contain me-south-1 VPC/subnet lookups and regenerate on `cdk synth`):
+- `ticketing-platform-infrastructure/TP.Infrastructure.Cdk/cdk.context.json`
+- `ticketing-platform-gateway/src/Gateway.Cdk/cdk.context.json`
+- `ticketing-platform-media/src/TP.Media.Cdk/cdk.context.json`
+
+---
+
+### Task 12: Update CI/CD Templates and ConfigMap Workflows
+
+**Repo (templates):** `ticketing-platform-templates-ci-cd`
+
+| Action | Files |
+|--------|-------|
+| Update or remove (EKS dead code) | `.github/workflows/deploy.yml` — 8 hardcoded me-south-1 references in ECR/Helm commands |
+| Update or remove (EKS dead code) | `.github/workflows/k8s.yml` — 2 hardcoded me-south-1 references |
+
+**Repos (ConfigMap CI/CD):** `ticketing-platform-configmap-dev`, `ticketing-platform-configmap-sandbox`, `ticketing-platform-configmap-prod`
+
+| Action | Files |
+|--------|-------|
+| Remove or disable | `ticketing-platform-configmap-dev/.github/workflows/ci.yml` |
+| Remove or disable | `ticketing-platform-configmap-sandbox/.github/workflows/ci.yml` |
+| Remove or disable | `ticketing-platform-configmap-prod/.github/workflows/ci.yml` |
+| Remove or disable | `ticketing-platform-configmap-prod/.github/workflows/disaster.yml` |
+
+---
+
+### Task 13: Update Local Development Settings (lowest priority)
+
+**Repos:** `ticketing-platform-media`, `ticketing-platform-pricing`, `ticketing-platform-extension-api`, `ticketing-platform-distribution-portal`, `ticketing-platform-gateway`, `ticketing-platform-sales`
+
+These contain me-south-1 RDS hosts, SQS URLs, OpenSearch URIs — update after new endpoints exist in eu-central-1:
+- `ticketing-platform-media/src/TP.Media.API/appsettings.Development.json`
+- `ticketing-platform-pricing/src/TP.Pricing.API/Properties/launchSettings.json`
+- `ticketing-platform-extension-api/TP.Extensions.API/Properties/launchSettings.json`
+- `ticketing-platform-distribution-portal/src/TP.DistributionPortal.API/Properties/launchSettings.json`
+- `ticketing-platform-gateway/src/Gateway/Properties/launchSettings.json`
+- `ticketing-platform-sales/src/TP.Sales.API/Properties/launchSettings.json`
+
+---
+
+### Task 14: Security Remediation
+
+**Repos:** `ticketing-platform-terraform-dev`, `ticketing-platform-terraform-prod`, `ticketing-platform-configmap-prod`
+
+| Repo | File | Change |
+|------|------|--------|
+| `ticketing-platform-terraform-dev` | `.gitignore` | Add `*.tfstate` and `*.tfstate.backup` |
+| `ticketing-platform-terraform-prod` | `.gitignore` | Add `*.tfstate` and `*.tfstate.backup` |
+| `ticketing-platform-terraform-dev` | `dev/s3.tf:246` | Fix lifecycle config bucket reference from sandbox to dev |
+| `ticketing-platform-configmap-prod` | `manifests-new/sales.yml` | Remove plaintext Elasticsearch credentials |
+
+**Deferred to Phase 4:** Prod plaintext creds in `ticketing-platform-terraform-prod/prod/variables.tf:97,117,125` (opensearch_pass, rds_pass, rds_pass_inventory) — move to Secrets Manager.
+
+---
+
+### Task 15: Temporarily Exclude RDS Cluster from Terraform
+
+**Repos:** `ticketing-platform-terraform-dev`, `ticketing-platform-terraform-prod`
+
+Comment out `aws_rds_cluster` and `aws_rds_cluster_instance` resource blocks to prevent Terraform from creating an empty database cluster. AWS Backup restore creates a *separate* cluster (you cannot restore into an existing cluster).
+
+| File | Action |
+|------|--------|
+| `ticketing-platform-terraform-prod/prod/rds.tf` | Comment out `aws_rds_cluster "ticketing"` + `aws_rds_cluster_instance "ticketing"` blocks. **Keep** `aws_db_subnet_group`, `aws_security_group`, and `aws_security_group_rule` resources (needed for backup restore) |
+| `ticketing-platform-terraform-dev/dev/rds.tf` | Same — comment out cluster + instance blocks, keep subnet group + security group |
+
+**Why:** `terraform apply` would create an empty RDS cluster. After backup restore in Phase 2.6, we `terraform import` the restored cluster, then uncomment the resources.
+
+---
+
+### Task 16: Set Temporary `production-eu` Domain Mapping in CDK
+
+**Repos:** `ticketing-platform-tools`, `ticketing-platform-gateway`, `ticketing-platform-infrastructure`, `ticketing-platform-geidea`, `ecwid-integration`
+
+Change `"production"` to `"production-eu"` in the env-to-domain mapping in these 7 files:
+
+| File | Current | Change to |
+|------|---------|-----------|
+| `ticketing-platform-tools/TP.Tools.Infrastructure/Helpers/ServerlessApiStackHelper.cs:47` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
+| `ticketing-platform-gateway/src/Gateway.Cdk/Stacks/GatewayStack.cs:32` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
+| `ticketing-platform-gateway/src/Gateway.Cdk/Stacks/GatewayStack.cs:107` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
+| `ticketing-platform-infrastructure/TP.Infrastructure.Cdk/Stacks/InternalHostedZoneStack.cs:15` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
+| `ticketing-platform-infrastructure/TP.Infrastructure.Cdk/Stacks/InternalCertificateStack.cs:15` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
+| `ticketing-platform-geidea/src/TP.Geidea.Cdk/Stacks/ApiStack.cs:32` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
+| `ecwid-integration/src/TP.Ecwid.Cdk/Stacks/ApiStack.cs:32` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
+
+**Note:** GatewayStack has two occurrences of the domain conditional (lines 32 and 107). Line 107 is in `CreateCustomDomain()` where it derives the SSM path for the certificate ARN. Both must be updated.
+
+**Note:** `xp-badges`, `bandsintown-integration`, and `marketing-feeds` are excluded from migration (deprecated services).
+
+**What this changes:** Only the domain names used for API Gateway custom domains, Route53 records, and ACM certificates. All other identifiers (secret paths `/prod/*`, SSM paths `/prod/tp/*`, stack names, Lambda names, queue names) remain unchanged.
+
+**Important:** GatewayStack uses the **mapped** env name (e.g., `production-eu`) for its SSM certificate path: `/{envName}/tp/DomainCertificateArn`. This means the Gateway certificate SSM parameter must be stored at `/production-eu/tp/DomainCertificateArn` (not `/prod/tp/...`). All other services (Geidea, Ecwid) use the raw env for their SSM paths (`/prod/tp/{service}/DomainCertificateArn`).
+
+**What this produces:**
+- `api.production-eu.tickets.mdlbeast.net` (gateway)
+- `geidea.production-eu.tickets.mdlbeast.net` (geidea)
+- `ecwid.production-eu.tickets.mdlbeast.net` (ecwid — via `ecwid-integration`)
+- `*.internal.production-eu.tickets.mdlbeast.net` (all internal services)
+
+---
+
+### Task 17: Run Tests
+
+Run all tests to verify code changes don't break anything:
+```bash
+# .NET services (in each repo with test projects)
+dotnet test
+# Dashboard
+cd ticketing-platform-dashboard && npm run test && npm run typescript
+```
+
+---
+
+### Task 18: Verify Zero me-south-1 References
+
+```bash
+grep -r "me-south-1" --include="*.tf" --include="*.cs" --include="*.json" \
+  --include="*.yml" --include="*.yaml" \
+  --exclude-dir={.terraform,node_modules,bin,obj,cdk.out,.git,helm} \
+  | grep -v "configmap-" | grep -v "README" | grep -v ".idea/"
+```
+
+Expected: zero results in deployable code. ConfigMap files (archival), README docs, and IDE workspace files are excluded.
+
+---
+
+### Task 19: Merge and Publish `ticketing-platform-tools` NuGet Package
+
+**Repo:** `ticketing-platform-tools`
+
+**Why this must happen before any CDK deploy:** All backend services consume `TP.Tools.Infrastructure` as a NuGet package from GitHub Packages (not a local project reference). The domain mapping change in `ServerlessApiStackHelper.cs` (Task 16) must be published as a new NuGet version BEFORE services can use it. Without this, CDK deploys in Phase 3 would use the OLD `ServerlessApiStackHelper` — creating domains under `production.tickets.mdlbeast.net` instead of the temporary `production-eu.tickets.mdlbeast.net`.
+
+**Steps:**
+
+```bash
+cd ticketing-platform-tools
+
+# 1. Merge hotfix branch to master (triggers nuget.yml publish workflow)
+git checkout master && git pull
+git merge hotfix/region-migration-eu-central-1
+git push origin master
+
+# 2. Wait for GitHub Actions nuget.yml to complete
+#    Monitor: https://github.com/mdlbeasts/ticketing-platform-tools/actions/workflows/nuget.yml
+#    This publishes TP.Tools.Infrastructure version 1.0.{run_number}
+#    Note the new version number from the workflow output.
+
+# 3. Update TP.Tools.Infrastructure version in ALL service CDK .csproj files
+#    Run from monorepo root:
+NEW_VERSION="1.0.XXXX"  # Replace with actual version from step 2
+find . -name "*.csproj" -not -path "*/ticketing-platform-tools/*" \
+  -not -path "*/bin/*" -not -path "*/obj/*" \
+  -exec grep -l "TP.Tools.Infrastructure" {} \; | while read f; do
+  sed -i '' "s/\"TP.Tools.Infrastructure\" Version=\"[^\"]*\"/\"TP.Tools.Infrastructure\" Version=\"$NEW_VERSION\"/" "$f"
+  echo "Updated: $f"
+done
+
+# 4. Commit the version bump in each affected service repo
+for repo in \
+  ticketing-platform-access-control ticketing-platform-automations \
+  ticketing-platform-catalogue ticketing-platform-csv-generator \
+  ticketing-platform-customer-service ticketing-platform-distribution-portal \
+  ticketing-platform-extension-api ticketing-platform-extension-deployer \
+  ticketing-platform-extension-executor ticketing-platform-extension-log-processor \
+  ticketing-platform-gateway ticketing-platform-geidea \
+  ticketing-platform-infrastructure ticketing-platform-integration \
+  ticketing-platform-inventory ticketing-platform-loyalty \
+  ticketing-platform-marketplace-service ticketing-platform-media \
+  ticketing-platform-organizations ticketing-platform-pdf-generator \
+  ticketing-platform-pricing ticketing-platform-reporting-api \
+  ticketing-platform-sales ticketing-platform-transfer \
+  ecwid-integration; do
+  (cd "$repo" && git add -A && git diff --cached --quiet || \
+    git commit -m "chore: bump TP.Tools.Infrastructure to $NEW_VERSION for region migration")
+done
+
+# 5. Verify: build one service to confirm NuGet restore works
+cd ticketing-platform-sales/src/TP.Sales.Cdk && dotnet build
+```
+
+**This is the ONLY repo merged to `master` before Phase 3.** All other repos stay on `hotfix/region-migration-eu-central-1`.
+
+---
+
+### Task 20: DO NOT Merge Other Repos Yet
+
+Keep all repos (except `ticketing-platform-tools`, already merged) on `hotfix/region-migration-eu-central-1` branches until Phase 3 validation passes. Merging triggers CI/CD deployments — infrastructure must be ready first.
 
 ---
 
@@ -856,9 +1239,9 @@ for env in prod; do
   aws ssm put-parameter --name "/$env/tp/SUBNET_3" --type String --value "$SUBNET_3" $P
 done
 
-# PDF Generator S3 bucket name
+# PDF Generator S3 bucket name (actual prod bucket is tickets-pdf-download, not pdf-tickets-prod)
 aws ssm put-parameter --name "/prod/tp/pdf/generator/STORAGE_BUCKET_NAME" \
-  --type String --value "pdf-tickets-prod-eu" $P
+  --type String --value "tickets-pdf-download-eu" $P
 
 # Slack webhook URLs (retrieve from Slack workspace or password manager)
 for env in prod; do
@@ -889,8 +1272,10 @@ Since me-south-1 is down, restore from the cross-region backup copy in eu-centra
 P="--profile AdministratorAccess-660748123249 --region eu-central-1"
 
 # 1. List available Aurora backup recovery points in eu-central-1
-aws backup list-recovery-points-by-resource-type \
-  --resource-type "Aurora" $P \
+#    Backups are stored in vault "backup-vault-prod"
+#    Latest confirmed: 2026-03-23 19:40 UTC+8, engine aurora-postgresql 15.12
+aws backup list-recovery-points-by-resource \
+  --resource-arn "arn:aws:rds:me-south-1:660748123249:cluster:ticketing" $P \
   --query 'sort_by(RecoveryPoints, &CreationDate)[-1]'
 
 # 2. Get the RDS security group ID (created by Terraform in 2.4)
@@ -1019,34 +1404,46 @@ S3 buckets were created empty by Terraform in 2.4. Backup data is restored INTO 
 P="--profile AdministratorAccess-660748123249 --region eu-central-1"
 
 # 1. List S3 backup recovery points in eu-central-1
-aws backup list-recovery-points-by-resource-type \
-  --resource-type "S3" $P
+#    Backups are stored in vault "backup-vault-prod" (not "Default")
+#    Latest confirmed: 2026-03-23 19:40 UTC+8 for both buckets below
+aws backup list-recovery-points-by-resource \
+  --resource-arn "arn:aws:s3:::tickets-pdf-download" $P
+aws backup list-recovery-points-by-resource \
+  --resource-arn "arn:aws:s3:::ticketing-csv-reports" $P
 
-# 2. For each bucket, restore to the new eu-central-1 bucket
+# 2. Restore each bucket to the new eu-central-1 bucket
 # Terraform created these with -eu suffix; "NewBucket": "false" restores data into existing bucket
+#
+# Only 2 prod buckets have cross-region backup copies in eu-central-1:
+#   tickets-pdf-download     → tickets-pdf-download-eu     (20 recovery points, latest 2026-03-23)
+#   ticketing-csv-reports    → ticketing-csv-reports-eu     (20 recovery points, latest 2026-03-23)
+#
+# NOT restored (no backup copies in eu-central-1):
+#   ticketing-prod-media     → ticketing-prod-media-eu      (0 recovery points — bucket recreated empty, acceptable)
+#   ticketing-prod-extended-message → CDK-created dynamically (no restore needed)
 
 aws backup start-restore-job \
-  --recovery-point-arn "<recovery-point-arn-for-pdf-tickets-prod>" \
+  --recovery-point-arn "<recovery-point-arn-for-tickets-pdf-download>" \
   --iam-role-arn "arn:aws:iam::660748123249:role/AWSBackupDefaultRole" \
   --metadata '{
-    "DestinationBucketName": "pdf-tickets-prod-eu",
+    "DestinationBucketName": "tickets-pdf-download-eu",
     "NewBucket": "false"
   }' $P
 
-# Repeat for each prod bucket (use the recovery point ARN matching the source bucket):
-# Source bucket (me-south-1)      → Destination bucket (eu-central-1)
-# pdf-tickets-prod                → pdf-tickets-prod-eu
-# tickets-pdf-download            → tickets-pdf-download-eu
-# ticketing-csv-reports           → ticketing-csv-reports-eu
-# ticketing-prod-media            → ticketing-prod-media-eu
+aws backup start-restore-job \
+  --recovery-point-arn "<recovery-point-arn-for-ticketing-csv-reports>" \
+  --iam-role-arn "arn:aws:iam::660748123249:role/AWSBackupDefaultRole" \
+  --metadata '{
+    "DestinationBucketName": "ticketing-csv-reports-eu",
+    "NewBucket": "false"
+  }' $P
 
 # 3. Monitor restore jobs
 aws backup list-restore-jobs $P \
   --query 'RestoreJobs[?Status!=`COMPLETED`].{Id:RestoreJobId,Status:Status,Bucket:ResourceType}'
 
-# 4. Verify object counts after all restores complete
-for bucket in pdf-tickets-prod-eu tickets-pdf-download-eu ticketing-csv-reports-eu \
-  ticketing-prod-media-eu; do
+# 4. Verify object counts after restores complete
+for bucket in tickets-pdf-download-eu ticketing-csv-reports-eu; do
   echo "$bucket: $(aws s3 ls s3://$bucket --recursive --summarize $P | tail -1)"
 done
 ```
@@ -1700,7 +2097,7 @@ gh variable set STORYBOOK_CLOUDFRONT_DISTRIBUTION_ID --body "<new-distro-id>" --
 
 ### 4.5 Merge to Production & Deploy Frontends
 
-- Merge `feature/region-migration-eu-central-1` branches to `master`/`production`
+- Merge `hotfix/region-migration-eu-central-1` branches to `master`/`production`
 - Dashboard: merge `vercel.json` + `.env` changes → triggers Vercel redeploy
 - Distribution Portal: merge and verify
 - Mobile Scanner: trigger release build

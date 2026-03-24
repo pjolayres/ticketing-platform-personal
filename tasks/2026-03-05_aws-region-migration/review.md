@@ -1,8 +1,8 @@
 # AWS Region Migration Plan Review
 
 **Plan:** `.personal/tasks/2026-03-05_aws-region-migration/plan.md`
-**Reviewed:** 2026-03-24 (Round 7)
-**Method:** 7 review rounds with 46+ parallel agents validating Terraform, CDK stacks, SSM parameters, CI/CD workflows, S3 buckets, Route53 DNS, me-south-1 reference completeness, Aurora restore procedures, DNS cutover logic, connection string patterns, and SQS queue naming
+**Reviewed:** 2026-03-25 (Round 8)
+**Method:** 8 review rounds with 46+ parallel agents + AWS CLI live verification against me-south-1 prod account (660748123249). Round 8 validated: S3 buckets, Lambda functions, RDS cluster, SQS queues, Secrets Manager, Route53 zones, DNS records, CloudFront distributions, EventBridge buses, KMS keys, IAM users, and AWS Backup recovery points in eu-central-1.
 
 - [Executive Summary](#executive-summary)
   - [Verdict by Phase](#verdict-by-phase)
@@ -56,7 +56,7 @@ The migration plan is comprehensive and addresses ~97% of the migration scope. R
 
 | Phase | Status | Remaining Blockers |
 |-------|--------|----------|
-| Phase 1 (Code Prep) | ~99% Complete | None |
+| Phase 1 (Code Prep) | ~99% Complete | None — tools NuGet publish ordering addressed in Task 19 |
 | Phase 2 (Prod Foundation) | ~99% Complete | None |
 | Phase 3 (Prod Services) | ~99% Complete | None |
 | Phase 4 (DNS Cutover) | ~99% Complete | None |
@@ -365,6 +365,25 @@ All items below were identified across 5 review rounds and are now fully address
 - No additional bucket names discovered outside plan scope (Round 6) ✓
 - Dashboard vercel.json 6 CSP URLs confirmed (Round 6) ✓
 - Extended message buckets use dynamic naming — no manual update needed (Round 6) ✓
+- `pdf-tickets-prod` confirmed unused (dead `var.s3_prod` variable) — removed from plan (Round 8) ✓
+- `tickets-pdf-download` confirmed as actual prod PDF bucket via Terraform `s3.tf` + CloudFront origin (Round 8) ✓
+- `ticketing-prod-media` confirmed 0 backup recovery points in eu-central-1 — acceptable, recreated empty (Round 8) ✓
+- S3 backup vault confirmed: `backup-vault-prod` in eu-central-1 (Round 8) ✓
+- S3 backup dates confirmed: latest 2026-03-23 19:40 UTC+8 for both restorable buckets (Round 8) ✓
+
+### AWS Infrastructure (Live Verification — Round 8)
+- RDS cluster `ticketing`: aurora-postgresql 15.12, 3x `db.serverless` instances, scaling 1.5-64 ACU, subnet group `postgres`, KMS encrypted ✓
+- RDS instance identifiers: `aurora-cluster-demo-{0,1,2}` — matches plan (after ISSUE-32 fix) ✓
+- Aurora backup: 21 daily cross-region copies in eu-central-1 `backup-vault-prod`, all COMPLETED ✓
+- 24 Secrets Manager secrets confirmed, all `/{env}/{service}` pattern ✓
+- 45 SQS queues: 18 CDK consumer pairs + 4 extension/legacy pairs + 1 xray DLQ ✓
+- EventBridge bus: `event-bus-prod` ✓
+- Route53: 2 zones (public `production.tickets.mdlbeast.net`, private `internal.production.tickets.mdlbeast.net`) ✓
+- 116 Lambda functions: 81 core + 32 extension runtime + 3 LogRetention ✓
+- CloudFront: 3 distributions (pdf-download, mobile-scanner, grafana) ✓
+- KMS: 1 custom alias `alias/rds` ✓
+- IAM: `cicd` user confirmed ✓
+- eu-central-1 is clean: 0 Lambda functions, 0 SQS queues, no CDK bootstrap ✓
 
 ### Third-Party Integrations
 - Auth0, Checkout.com, SendGrid, Sentry, Seats.io — all SaaS, region-agnostic ✓
@@ -373,19 +392,28 @@ All items below were identified across 5 review rounds and are now fully address
 
 ## Recommendations Summary
 
-### Before Starting Phase 1 (MUST FIX — Round 7)
+### All Round 7 Issues — RESOLVED
 
-1. **Add ecwid domain mapping** to Phase 1 Task 10 and Phase 4.1 revert table (ISSUE-31)
-2. **Fix Terraform RDS identifiers** — update `rds.tf` cluster_identifier to `"ticketing-eu"` and instance identifier pattern to `"ticketing-eu-instance-${count.index}"` (ISSUE-32)
-3. **Correct SQS queue names** in Phase 3.4 Step 6 to match CDK naming convention: `{ConsumerEnumName}-queue-{env}` (ISSUE-33)
-4. **Add transfer, reporting, media** to Phase 3.4 Step 6 SQS update loop (ISSUE-34)
-5. **Add post-restore security group step** to Phase 2.6 as fallback (ISSUE-37)
+All 7 issues from Round 7 have been resolved in the plan. See individual issue entries above for details.
 
-### Before Starting Phase 1 (SHOULD FIX)
+### Round 8 — AWS CLI Live Verification (2026-03-25)
 
-6. **Document RDS Proxy behavioral change** in Phase 3.4 — note this is intentional upgrade from direct RDS to proxied connections (ISSUE-36)
-7. **Add Phase 4.3 deployment guidance** — minimize gap between InternalHostedZoneStack and ServerlessBackendStack redeployments; add `cdk diff` dry-runs and DNS verification steps (ISSUE-35)
-8. **Add ecwid-integration** to Phase 4.4 GitHub secrets repo list
+Verified prod account `660748123249` via AWS CLI. Corrections applied:
+
+| Finding | Action |
+|---|---|
+| `pdf-tickets-prod` bucket does not exist — dead variable `var.s3_prod` in Terraform, never referenced | Removed from S3 naming table; PDF generator SSM corrected to `tickets-pdf-download-eu` |
+| `ticketing-prod-media` has 0 backup recovery points in eu-central-1 | Removed from Phase 2.7 restore — bucket recreated empty (acceptable) |
+| Aurora backup in `backup-vault-prod` vault, latest 2026-03-23 19:40 UTC+8, engine 15.12 | Vault name and confirmed dates added to Phase 2.6 and 2.7 |
+| S3 backups confirmed: `tickets-pdf-download` (20 points), `ticketing-csv-reports` (20 points) | Phase 2.7 updated to restore only these 2 buckets |
+| RDS cluster `ticketing`, instances `aurora-cluster-demo-{0,1,2}`, `db.serverless`, scaling 1.5-64 ACU | Matches plan exactly (after ISSUE-32 fix) |
+| 24 secrets confirmed, all `/{env}/{service}` pattern | Matches plan |
+| 45 SQS queues: 36 CDK consumer + 8 extension/legacy + 1 xray | Queue names match plan (after ISSUE-33 fix) |
+| EventBridge bus name: `event-bus-prod` | Noted — CDK uses this naming |
+| Route53: 2 zones (public + private), 25 DNS records including dead EKS CNAMEs | CDK will overwrite; confirmed |
+| 116 Lambda functions (81 core + 32 extensions + 3 LogRetention) | All 23 services + monitoring confirmed deployed |
+| CloudFront: 3 distributions (pdf-download, mobile-scanner, grafana) | `tickets-pdf-download` origin confirmed |
+| KMS: 1 custom alias `alias/rds` → `mrk-fa75a489...` | Terraform creates new key in eu-central-1 |
 
 ### Remaining Manual Work (carried from earlier rounds)
 
@@ -545,7 +573,7 @@ Complete matrix for Phase 3.4 and Phase 5.4. **All 23 services.**
 
 ---
 
-*Review completed: 2026-03-24 (Round 7)*
+*Review completed: 2026-03-25 (Round 8)*
 *Validated against: 30+ service repositories, Terraform configs, CDK stacks, CI/CD workflows, ConfigMaps*
 *Round 5: 6 parallel agents — missing services CDK audit, Terraform cross-references, uncovered me-south-1 references, SSM parameters, GitHub secrets, S3 buckets*
 *Round 5+: 3 parallel agents — comprehensive SSM audit, S3 bucket naming propagation, Route53 DNS rerouting analysis*
