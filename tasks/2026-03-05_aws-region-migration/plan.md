@@ -880,16 +880,24 @@ git push origin master
 
 # 2. Wait for GitHub Actions nuget.yml to complete
 #    Monitor: https://github.com/mdlbeasts/ticketing-platform-tools/actions/workflows/nuget.yml
-#    This publishes TP.Tools.Infrastructure version 1.0.{run_number}
+#    This publishes ALL 12 TP.Tools.* packages with the same version 1.0.{run_number}:
+#      TP.Tools.BackgroundJobs, TP.Tools.DataAccessLayer, TP.Tools.Helpers,
+#      TP.Tools.Infrastructure, TP.Tools.Libs.Entities, TP.Tools.Logger,
+#      TP.Tools.MessageBroker, TP.Tools.PhoneNumbers, TP.Tools.RestVersioning,
+#      TP.Tools.SharedEntities, TP.Tools.Swagger, TP.Tools.Validator
 #    Note the new version number from the workflow output.
+#
+#    Migration changes span TP.Tools.Infrastructure (domain mapping, IAM policy)
+#    AND TP.Tools.MessageBroker (extended-message bucket name). Per standard practice,
+#    all TP.Tools.* references are bumped together to keep shared libraries in sync.
 
-# 3. Update TP.Tools.Infrastructure version in ALL service CDK .csproj files
+# 3. Update ALL TP.Tools.* package versions in service .csproj files
 #    Run from monorepo root:
 NEW_VERSION="1.0.XXXX"  # Replace with actual version from step 2
 find . -name "*.csproj" -not -path "*/ticketing-platform-tools/*" \
   -not -path "*/bin/*" -not -path "*/obj/*" \
-  -exec grep -l "TP.Tools.Infrastructure" {} \; | while read f; do
-  sed -i '' "s/\"TP.Tools.Infrastructure\" Version=\"[^\"]*\"/\"TP.Tools.Infrastructure\" Version=\"$NEW_VERSION\"/" "$f"
+  -exec grep -l "TP\.Tools\." {} \; | while read f; do
+  sed -i '' "s/\"TP\.Tools\.\([^\"]*\)\" Version=\"[^\"]*\"/\"TP.Tools.\1\" Version=\"$NEW_VERSION\"/g" "$f"
   echo "Updated: $f"
 done
 
@@ -909,7 +917,7 @@ for repo in \
   ticketing-platform-sales ticketing-platform-transfer \
   ecwid-integration; do
   (cd "$repo" && git add -A && git diff --cached --quiet || \
-    git commit -m "chore: bump TP.Tools.Infrastructure to $NEW_VERSION for region migration")
+    git commit -m "chore: bump TP.Tools.* to $NEW_VERSION for region migration")
 done
 
 # 5. Verify: build one service to confirm NuGet restore works
@@ -1960,17 +1968,60 @@ After Phase 3 validation passes, cut over from the temporary `production-eu` dom
 
 ### 4.1 Revert Temporary Domain Mapping in CDK
 
-Revert the 7 files changed in Phase 1 Task 10:
+Revert the 7 files changed in Phase 1 Task 16:
 
-| File | Change back to |
-|------|---------------|
-| `ServerlessApiStackHelper.cs:47` | `env == "prod" ? "production" : env` |
-| `GatewayStack.cs:32` | `env == "prod" ? "production" : env` |
-| `GatewayStack.cs:107` | `env == "prod" ? "production" : env` |
-| `InternalHostedZoneStack.cs:15` | `env == "prod" ? "production" : env` |
-| `InternalCertificateStack.cs:15` | `env == "prod" ? "production" : env` |
-| `Geidea ApiStack.cs:32` | `env == "prod" ? "production" : env` |
-| `Ecwid ApiStack.cs:32` | `env == "prod" ? "production" : env` |
+| File | Repo | Change back to |
+|------|------|---------------|
+| `ServerlessApiStackHelper.cs:47` | `ticketing-platform-tools` | `env == "prod" ? "production" : env` |
+| `GatewayStack.cs:32` | `ticketing-platform-gateway` | `env == "prod" ? "production" : env` |
+| `GatewayStack.cs:107` | `ticketing-platform-gateway` | `env == "prod" ? "production" : env` |
+| `InternalHostedZoneStack.cs:15` | `ticketing-platform-infrastructure` | `env == "prod" ? "production" : env` |
+| `InternalCertificateStack.cs:15` | `ticketing-platform-infrastructure` | `env == "prod" ? "production" : env` |
+| `Geidea ApiStack.cs:32` | `ticketing-platform-geidea` | `env == "prod" ? "production" : env` |
+| `Ecwid ApiStack.cs:32` | `ecwid-integration` | `env == "prod" ? "production" : env` |
+
+### 4.1.1 Publish Updated `ticketing-platform-tools` NuGet Package
+
+**`ServerlessApiStackHelper.cs` is consumed via NuGet** — the revert must be published before Phase 4.3 CDK deploys, otherwise stacks will still create `production-eu` domains. Same publish cycle as Phase 1 Task 19:
+
+```bash
+cd ticketing-platform-tools
+
+# 1. The revert from 4.1 is already on the hotfix branch.
+#    Merge to master to trigger NuGet publish.
+git checkout master && git pull
+git merge hotfix/region-migration-eu-central-1
+git push origin master
+
+# 2. Wait for nuget.yml to complete — note the new version number
+#    Monitor: https://github.com/mdlbeasts/ticketing-platform-tools/actions/workflows/nuget.yml
+
+# 3. Bump TP.Tools.* version in the service repos being redeployed in 4.3
+#    Only the repos with CDK stacks redeployed in 4.3 need the bump:
+NEW_VERSION="1.0.XXXX"  # Replace with actual version from step 2
+for repo in \
+  ticketing-platform-infrastructure ticketing-platform-gateway \
+  ticketing-platform-geidea ecwid-integration \
+  ticketing-platform-catalogue ticketing-platform-organizations \
+  ticketing-platform-inventory ticketing-platform-pricing \
+  ticketing-platform-sales ticketing-platform-access-control \
+  ticketing-platform-media ticketing-platform-reporting-api \
+  ticketing-platform-transfer ticketing-platform-marketplace-service \
+  ticketing-platform-integration ticketing-platform-distribution-portal \
+  ticketing-platform-extension-api ticketing-platform-customer-service; do
+  find "$repo" -name "*.csproj" -not -path "*/bin/*" -not -path "*/obj/*" \
+    -exec grep -l "TP\.Tools\." {} \; | while read f; do
+    sed -i '' "s/\"TP\.Tools\.\([^\"]*\)\" Version=\"[^\"]*\"/\"TP.Tools.\1\" Version=\"$NEW_VERSION\"/g" "$f"
+  done
+  (cd "$repo" && git add -A && git diff --cached --quiet || \
+    git commit -m "chore: bump TP.Tools.* to $NEW_VERSION for production domain cutover")
+done
+
+# 4. Verify build
+cd ticketing-platform-gateway/src/Gateway.Cdk && dotnet build
+```
+
+**Note:** The remaining service repos not redeployed in 4.3 (csv-generator, pdf-generator, automations, extension-deployer, extension-executor, extension-log-processor, loyalty) will pick up the new tools version when their branches are merged in Phase 4.5. Their stacks (Consumers, BackgroundJobs) don't create DNS records, so the domain mapping change doesn't affect them.
 
 ### 4.2 Create ACM Certificates for Real Domain
 
