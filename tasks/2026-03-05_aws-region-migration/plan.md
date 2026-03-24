@@ -140,14 +140,13 @@ The MDLBEAST Ticketing Platform must migrate from AWS me-south-1 (Bahrain) to eu
 
 ### Category 2: CDK env-var JSON Files (~40 files)
 
-All `env-var.{dev,sandbox,prod,demo}.json` files with `"STORAGE_REGION": "me-south-1"` across these services (15 total):
+All `env-var.{dev,sandbox,prod,demo}.json` files with `"STORAGE_REGION": "me-south-1"` across these services (14 total):
 
 - `ticketing-platform-access-control/src/TP.AccessControl.Cdk/`
 - `ticketing-platform-automations/src/TP.Automations.Cdk/`
 - `ticketing-platform-customer-service/src/TP.Customers.Cdk/`
 - `ticketing-platform-geidea/src/TP.Geidea.Cdk/`
 - `ticketing-platform-integration/src/TP.Integration.Cdk/`
-- `ticketing-platform-inventory/src/TP.Inventory.Cdk/`
 - `ticketing-platform-loyalty/src/TP.Loyalty.Cdk/`
 - `ticketing-platform-marketplace-service/src/TP.Marketplace.Cdk/`
 - `ticketing-platform-media/src/TP.Media.Cdk/`
@@ -158,7 +157,7 @@ All `env-var.{dev,sandbox,prod,demo}.json` files with `"STORAGE_REGION": "me-sou
 - `ticketing-platform-tools/Debug.Cdk/`
 - `ecwid-integration/src/TP.Ecwid.Cdk/`
 
-**Note:** `catalogue`, `organizations`, and `distribution-portal` do NOT have `STORAGE_REGION` in their env-var files.
+**Note:** `catalogue`, `organizations`, `distribution-portal`, and `inventory` do NOT have `STORAGE_REGION` in their env-var files.
 
 **S3 bucket name variables that also need updating (not covered by bulk STORAGE_REGION script):**
 
@@ -473,7 +472,7 @@ S3 bucket names are globally unique. Cannot reuse names while old buckets exist.
    - Remove EKS IAM policies from `user-cicd.tf`, `iam-s3-sqs.tf`
    - Remove EKS subnet references from `rds.tf` security group rules
    - Remove `techlead-redis`, `developer-opensearch` from `group.tf`
-   - Remove `terraform_opensearch` output from `secretmanager.tf`
+   - Remove `terraform_opensearch` and `terraform_redis` outputs from `secretmanager.tf`
 
 4. **EKS deprecation cleanup in terraform-dev:**
    - Remove `iam-eks.tf` (orphaned)
@@ -1147,7 +1146,7 @@ request_cert() {
   echo "Add this CNAME to Route53: $VALIDATION"
 
   # Create validation CNAME in Route53 (get hosted zone ID first)
-  # The hosted zone for {env}.tickets.mdlbeast.net was imported in Phase 2.4
+  # The hosted zone for {env}.tickets.mdlbeast.net was created in Phase 3.1 (production-eu) or imported in Phase 2.4 (production)
   ZONE_ID=$(aws route53 list-hosted-zones $P \
     --query "HostedZones[?Name=='${env}.tickets.mdlbeast.net.'].Id" --output text | sed 's|/hostedzone/||')
   VNAME=$(echo "$VALIDATION" | python3 -c "import json,sys; print(json.load(sys.stdin)['Name'])")
@@ -1453,8 +1452,8 @@ aws lambda invoke --function-name "<service>-db-migrator-lambda-prod" \
   --payload '{}' $P /dev/null
 
 # 3. Create log groups (avoids cold-start log group creation delay)
-aws logs create-log-group --log-group-name "/aws/lambda/<service>-serverless-dev-function" $P
-aws logs create-log-group --log-group-name "/aws/lambda/<service>-consumers-lambda-dev" $P
+aws logs create-log-group --log-group-name "/aws/lambda/<service>-serverless-prod-function" $P
+aws logs create-log-group --log-group-name "/aws/lambda/<service>-consumers-lambda-prod" $P
 
 # 4+. Deploy remaining stacks in order per matrix above
 ```
