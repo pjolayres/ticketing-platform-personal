@@ -513,7 +513,7 @@ S3 bucket names are globally unique. Cannot reuse names while old buckets exist.
 
 10. **Set temporary `production-eu` domain mapping in CDK** (allows full testing before touching live DNS):
 
-    Change `"production"` to `"production-eu"` in the env-to-domain mapping in these 5 files:
+    Change `"production"` to `"production-eu"` in the env-to-domain mapping in these 7 files:
 
     | File | Current | Change to |
     |------|---------|-----------|
@@ -523,6 +523,7 @@ S3 bucket names are globally unique. Cannot reuse names while old buckets exist.
     | `ticketing-platform-infrastructure/TP.Infrastructure.Cdk/Stacks/InternalHostedZoneStack.cs:15` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
     | `ticketing-platform-infrastructure/TP.Infrastructure.Cdk/Stacks/InternalCertificateStack.cs:15` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
     | `ticketing-platform-geidea/src/TP.Geidea.Cdk/Stacks/ApiStack.cs:32` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
+    | `ecwid-integration/src/TP.Ecwid.Cdk/Stacks/ApiStack.cs:32` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
 
     **Note:** GatewayStack has two occurrences of the domain conditional (lines 32 and 107). Line 107 is in `CreateCustomDomain()` where it derives the SSM path for the certificate ARN. Both must be updated.
 
@@ -662,7 +663,7 @@ aws secretsmanager create-secret --name "/rds/ticketing-cluster" \
     \"engine\": \"aurora-postgresql\",
     \"host\": \"PLACEHOLDER_UPDATE_AFTER_RESTORE\",
     \"port\": \"5432\",
-    \"dbClusterIdentifier\": \"ticketing-eu\"
+    \"dbClusterIdentifier\": \"ticketing\"
   }" --profile AdministratorAccess-660748123249 --region eu-central-1
 ```
 
@@ -799,7 +800,7 @@ These bridge Terraform → CDK and must exist before any CDK deploy. The full SS
 | `/{env}/tp/SUBNET_1` | Terraform output | **YES** | Lambda subnet IDs from `terraform output` |
 | `/{env}/tp/SUBNET_2` | Terraform output | **YES** | |
 | `/{env}/tp/SUBNET_3` | Terraform output | **YES** | |
-| `/rds/ticketing-cluster-identifier` | Aurora restore | **YES** | Set to restored cluster identifier (`ticketing-eu`) |
+| `/rds/ticketing-cluster-identifier` | Aurora restore | **YES** | Set to restored cluster identifier (`ticketing`) — same as original, RDS identifiers are region-scoped |
 | `/rds/ticketing-cluster-sg` | Terraform output | **YES** | RDS security group ID |
 | `/production-eu/tp/DomainCertificateArn` | ACM (Phase 3.2) | **YES** | Gateway API certificate. **Note:** GatewayStack maps `prod` → `production-eu` in its SSM path — this is NOT `/{env}/tp/...` |
 | `/{env}/tp/geidea/DomainCertificateArn` | ACM (Phase 3.2) | **YES** | Geidea API certificate |
@@ -829,7 +830,7 @@ done
 
 # RDS cluster references (cluster identifier for CDK RdsProxyStack)
 aws ssm put-parameter --name "/rds/ticketing-cluster-identifier" \
-  --type String --value "ticketing-eu" $P
+  --type String --value "ticketing" $P
 
 # RDS security group ID (created by Terraform in 2.4 — still in rds.tf)
 RDS_SG=$(aws ec2 describe-security-groups $P \
@@ -903,7 +904,7 @@ aws backup start-restore-job \
   --recovery-point-arn "<recovery-point-arn>" \
   --iam-role-arn "arn:aws:iam::660748123249:role/AWSBackupDefaultRole" \
   --metadata '{
-    "DBClusterIdentifier": "ticketing-eu",
+    "DBClusterIdentifier": "ticketing",
     "Engine": "aurora-postgresql",
     "DBSubnetGroupName": "postgres",
     "VpcSecurityGroupIds": "'$RDS_SG'"
@@ -913,49 +914,69 @@ aws backup start-restore-job \
 aws backup describe-restore-job --restore-job-id "<job-id>" $P
 # Poll until Status = "COMPLETED"
 
+# 4a. Apply security group to restored cluster
+#     The VpcSecurityGroupIds metadata in the restore command MAY be silently ignored
+#     by the AWS Backup API (it's not in the documented required/optional metadata fields).
+#     If the restored cluster doesn't have the correct security group, apply it now.
+#     Without this, the cluster uses the VPC's default security group (no DB ingress rules)
+#     and all connection attempts will fail.
+CURRENT_SG=$(aws rds describe-db-clusters --db-cluster-identifier ticketing $P \
+  --query 'DBClusters[0].VpcSecurityGroups[0].VpcSecurityGroupId' --output text)
+if [ "$CURRENT_SG" != "$RDS_SG" ]; then
+  echo "Security group mismatch — applying correct SG: $RDS_SG (current: $CURRENT_SG)"
+  aws rds modify-db-cluster \
+    --db-cluster-identifier ticketing \
+    --vpc-security-group-ids $RDS_SG \
+    --apply-immediately $P
+  echo "Waiting for cluster modification..."
+  sleep 30
+fi
+
 # 5. Verify the engine version matches expectations
-aws rds describe-db-clusters --db-cluster-identifier ticketing-eu $P \
+aws rds describe-db-clusters --db-cluster-identifier ticketing $P \
   --query 'DBClusters[0].EngineVersion'
 
 # 6. Add serverless instances (the restore only creates the cluster, not instances)
+#    Instance identifiers match Terraform's naming: "aurora-cluster-demo-${count.index}"
+#    RDS identifiers are region-scoped (not globally unique), so we reuse the original names.
 for i in 0 1 2; do
   aws rds create-db-instance \
-    --db-instance-identifier ticketing-eu-instance-$i \
-    --db-cluster-identifier ticketing-eu \
+    --db-instance-identifier aurora-cluster-demo-$i \
+    --db-cluster-identifier ticketing \
     --engine aurora-postgresql \
     --db-instance-class db.serverless $P
 done
 
 # 7. Set Serverless v2 scaling (prod: 8-64 ACU — elevated min during go-live)
 aws rds modify-db-cluster \
-  --db-cluster-identifier ticketing-eu \
+  --db-cluster-identifier ticketing \
   --serverless-v2-scaling-configuration MinCapacity=8,MaxCapacity=64 $P
 # NOTE: MinCapacity elevated to 8 ACU during go-live to handle cold-cache load.
 # Reduce to normal 1.5 ACU after 72 hours stable (Phase 4.7).
 
 # 8. Wait for all instances to be available
-aws rds wait db-instance-available --db-instance-identifier ticketing-eu-instance-0 $P
-aws rds wait db-instance-available --db-instance-identifier ticketing-eu-instance-1 $P
-aws rds wait db-instance-available --db-instance-identifier ticketing-eu-instance-2 $P
+aws rds wait db-instance-available --db-instance-identifier aurora-cluster-demo-0 $P
+aws rds wait db-instance-available --db-instance-identifier aurora-cluster-demo-1 $P
+aws rds wait db-instance-available --db-instance-identifier aurora-cluster-demo-2 $P
 
 # 9. Verify cluster is available and writable
-aws rds describe-db-clusters --db-cluster-identifier ticketing-eu $P \
+aws rds describe-db-clusters --db-cluster-identifier ticketing $P \
   --query 'DBClusters[0].{Status:Status,Endpoint:Endpoint,ReaderEndpoint:ReaderEndpoint}'
 
 # 10. Import Aurora into Terraform state
 #     First: UNCOMMENT the aws_rds_cluster and aws_rds_cluster_instance blocks in rds.tf
-#     Update the cluster_identifier to match "ticketing-eu" if needed
-#     Update instance identifiers to match "ticketing-eu-instance-{0,1,2}" if needed
+#     No identifier changes needed — we used the original Terraform names during restore
+#     (RDS identifiers are region-scoped, not globally unique, so no conflict with me-south-1)
 cd ticketing-platform-terraform-prod/prod
-AWS_PROFILE=AdministratorAccess-660748123249 terraform import aws_rds_cluster.ticketing ticketing-eu
-AWS_PROFILE=AdministratorAccess-660748123249 terraform import 'aws_rds_cluster_instance.ticketing[0]' ticketing-eu-instance-0
-AWS_PROFILE=AdministratorAccess-660748123249 terraform import 'aws_rds_cluster_instance.ticketing[1]' ticketing-eu-instance-1
-AWS_PROFILE=AdministratorAccess-660748123249 terraform import 'aws_rds_cluster_instance.ticketing[2]' ticketing-eu-instance-2
+AWS_PROFILE=AdministratorAccess-660748123249 terraform import aws_rds_cluster.ticketing ticketing
+AWS_PROFILE=AdministratorAccess-660748123249 terraform import 'aws_rds_cluster_instance.ticketing[0]' aurora-cluster-demo-0
+AWS_PROFILE=AdministratorAccess-660748123249 terraform import 'aws_rds_cluster_instance.ticketing[1]' aurora-cluster-demo-1
+AWS_PROFILE=AdministratorAccess-660748123249 terraform import 'aws_rds_cluster_instance.ticketing[2]' aurora-cluster-demo-2
 AWS_PROFILE=AdministratorAccess-660748123249 terraform plan
 # Review: should show no changes or minor drift. Fix any drift in rds.tf before proceeding.
 
 # 11. Update /rds/ticketing-cluster secret with the new endpoint
-AURORA_ENDPOINT=$(aws rds describe-db-clusters --db-cluster-identifier ticketing-eu $P \
+AURORA_ENDPOINT=$(aws rds describe-db-clusters --db-cluster-identifier ticketing $P \
   --query 'DBClusters[0].Endpoint' --output text)
 
 # Read credentials from backup file
@@ -979,7 +1000,7 @@ aws secretsmanager update-secret --secret-id "/rds/ticketing-cluster" \
     \"engine\": \"aurora-postgresql\",
     \"host\": \"${AURORA_ENDPOINT}\",
     \"port\": \"5432\",
-    \"dbClusterIdentifier\": \"ticketing-eu\"
+    \"dbClusterIdentifier\": \"ticketing\"
   }" $P
 ```
 
@@ -1238,16 +1259,23 @@ cdk deploy TP-SlackNotificationStack-prod --require-approval never
 
 **Prerequisite:** RDS Proxy deployed (step 9 of 3.3), SQS queues deployed (step 2 of 3.3). Must complete **before** Phase 3.5 — DbMigrator Lambdas load secrets at runtime to connect to the database.
 
+**Note:** Services will connect directly to the Aurora cluster endpoint (not RDS Proxy). RDS Proxy is deployed by CDK but remains on standby — the existing architecture uses direct connections and changing to RDS Proxy would be an untested behavioral change during a critical migration. RDS Proxy may be adopted or removed in a future iteration.
+
 ```bash
 P="--profile AdministratorAccess-660748123249 --region eu-central-1"
 
-# 1. Get new RDS Proxy endpoint (created by CDK RdsProxyStack, stored in SSM)
-RDS_PROXY_ENDPOINT=$(aws ssm get-parameter \
-  --name "/rds/RdsProxyEndpoint" $P \
-  --query 'Parameter.Value' --output text)
-RDS_PROXY_RO_ENDPOINT=$(aws ssm get-parameter \
-  --name "/rds/RdsProxyReadOnlyEndpoint" $P \
-  --query 'Parameter.Value' --output text)
+# 1. Get Aurora cluster endpoints (direct connection — not RDS Proxy)
+AURORA_ENDPOINT=$(aws rds describe-db-clusters --db-cluster-identifier ticketing $P \
+  --query 'DBClusters[0].Endpoint' --output text)
+AURORA_RO_ENDPOINT=$(aws rds describe-db-clusters --db-cluster-identifier ticketing $P \
+  --query 'DBClusters[0].ReaderEndpoint' --output text)
+
+# RDS Proxy endpoints are available in SSM if needed in the future:
+#   /rds/RdsProxyEndpoint, /rds/RdsProxyReadOnlyEndpoint
+RDS_PROXY_ENDPOINT=$AURORA_ENDPOINT           # Using direct Aurora endpoint
+RDS_PROXY_RO_ENDPOINT=$AURORA_RO_ENDPOINT     # Using direct Aurora reader endpoint
+
+# (RDS Proxy SSM params still created by CDK — available at /rds/RdsProxyEndpoint if needed later)
 
 # 2. Get RDS master credentials (from /rds/ticketing-cluster secret, updated in 2.6)
 RDS_CREDS=$(aws secretsmanager get-secret-value --secret-id "/rds/ticketing-cluster" $P \
@@ -1303,7 +1331,7 @@ for cs_key in ['CONNECTION_STRINGS', 'CONNECTION_STRINGS_Sales']:
     try:
         cs_dict = json.loads(secret[cs_key])
         for ctx_key, conn_str in cs_dict.items():
-            # Replace Host= with new RDS Proxy endpoint
+            # Replace Host= with new Aurora cluster endpoint (direct connection, not RDS Proxy)
             if 'Readonly' in ctx_key or 'readonly' in ctx_key:
                 conn_str = re.sub(r'Host=[^;]+', f'Host={rds_proxy_ro}', conn_str)
             else:
@@ -1337,12 +1365,23 @@ print(json.dumps(secret))
   done
 done
 
-# 6. Update SQS queue URLs in secrets that reference them
+# 6. Verify SQS queue URLs in secrets after region swap
+#
+# Step 5 already replaced me-south-1 → eu-central-1 in all SQS_QUEUE_URL values.
+# CDK creates queues with the SAME names in eu-central-1, so only the region in the
+# URL changes. This step verifies the queue URLs are correct by fetching them fresh.
+#
+# Actual queue names (confirmed from me-south-1 via `aws sqs list-queues`):
+#   CDK consumer queues:  {Service}-queue-{env}  (e.g., Sales-queue-prod)
+#   Extension queues:     TP_Extensions_Deployer_Queue_{env}
+#                         TP_Extensions_Executor_Queue_{env}
+#   CSV generator queue:  TP_CSV_Report_Generator_Service_Queue_{env}
+#
 for env in prod; do
   # Extensions service — deployer and executor queue URLs
-  EXT_DEPLOYER_QUEUE=$(aws sqs get-queue-url --queue-name "tp-extensions-deployer-consumer-$env" \
+  EXT_DEPLOYER_QUEUE=$(aws sqs get-queue-url --queue-name "TP_Extensions_Deployer_Queue_$env" \
     $P --query 'QueueUrl' --output text 2>/dev/null || echo "CHECK_QUEUE_NAME")
-  EXT_EXECUTOR_QUEUE=$(aws sqs get-queue-url --queue-name "tp-extensions-executor-consumer-$env" \
+  EXT_EXECUTOR_QUEUE=$(aws sqs get-queue-url --queue-name "TP_Extensions_Executor_Queue_$env" \
     $P --query 'QueueUrl' --output text 2>/dev/null || echo "CHECK_QUEUE_NAME")
 
   aws secretsmanager get-secret-value --secret-id "/$env/extensions" \
@@ -1356,22 +1395,35 @@ print(json.dumps(secret))
 " | aws secretsmanager update-secret --secret-id "/$env/extensions" \
       --secret-string file:///dev/stdin $P
 
-  # Marketplace + Sales — generic SQS_QUEUE_URL
-  for svc in marketplace sales; do
-    QUEUE_URL=$(aws sqs get-queue-url --queue-name "tp-$svc-consumer-$env" \
-      $P --query 'QueueUrl' --output text 2>/dev/null || echo "CHECK_QUEUE_NAME")
+  # Marketplace, Sales, Transfer, Reporting — SQS_QUEUE_URL points to CSV generator queue
+  CSV_QUEUE_URL=$(aws sqs get-queue-url --queue-name "TP_CSV_Report_Generator_Service_Queue_$env" \
+    $P --query 'QueueUrl' --output text 2>/dev/null || echo "CHECK_QUEUE_NAME")
 
+  for svc in marketplace sales transfer reporting; do
     aws secretsmanager get-secret-value --secret-id "/$env/$svc" \
       $P --query 'SecretString' --output text | \
       python3 -c "
 import json, sys
 secret = json.load(sys.stdin)
 if 'SQS_QUEUE_URL' in secret:
-    secret['SQS_QUEUE_URL'] = '${QUEUE_URL}'
+    secret['SQS_QUEUE_URL'] = '${CSV_QUEUE_URL}'
 print(json.dumps(secret))
 " | aws secretsmanager update-secret --secret-id "/$env/$svc" \
         --secret-string file:///dev/stdin $P
   done
+
+  # Media — SQS_QUEUE_URL (verify actual queue name after CDK deploy)
+  aws secretsmanager get-secret-value --secret-id "/$env/media" \
+    $P --query 'SecretString' --output text | \
+    python3 -c "
+import json, sys
+secret = json.load(sys.stdin)
+if 'SQS_QUEUE_URL' in secret:
+    # Media's SQS_QUEUE_URL — verify the queue name matches CDK output
+    secret['SQS_QUEUE_URL'] = secret['SQS_QUEUE_URL'].replace('me-south-1', 'eu-central-1')
+print(json.dumps(secret))
+" | aws secretsmanager update-secret --secret-id "/$env/media" \
+      --secret-string file:///dev/stdin $P
 done
 ```
 
@@ -1501,7 +1553,7 @@ After Phase 3 validation passes, cut over from the temporary `production-eu` dom
 
 ### 4.1 Revert Temporary Domain Mapping in CDK
 
-Revert the 6 files changed in Phase 1 Task 10:
+Revert the 7 files changed in Phase 1 Task 10:
 
 | File | Change back to |
 |------|---------------|
@@ -1511,6 +1563,7 @@ Revert the 6 files changed in Phase 1 Task 10:
 | `InternalHostedZoneStack.cs:15` | `env == "prod" ? "production" : env` |
 | `InternalCertificateStack.cs:15` | `env == "prod" ? "production" : env` |
 | `Geidea ApiStack.cs:32` | `env == "prod" ? "production" : env` |
+| `Ecwid ApiStack.cs:32` | `env == "prod" ? "production" : env` |
 
 ### 4.2 Create ACM Certificates for Real Domain
 
@@ -1564,15 +1617,45 @@ cdk deploy TP-ApiStack-ecwid-prod --require-approval never
 
 **What happens:** CDK updates API Gateway custom domains from `*.production-eu.tickets.mdlbeast.net` to `*.production.tickets.mdlbeast.net` and creates A records in the existing `production.tickets.mdlbeast.net` hosted zone. DNS goes live for production.
 
-**Also redeploy all ServerlessBackendStack stacks** for internal services, since `ServerlessApiStackHelper` creates CNAME records in the private hosted zone:
+**CRITICAL — Minimize CNAME transition gap:** When InternalHostedZoneStack redeploys above (step 1), the old private hosted zone (`internal.production-eu.tickets.mdlbeast.net`) is **deleted** and a new zone (`internal.production.tickets.mdlbeast.net`) is **created**. Until the ServerlessBackendStack stacks below are redeployed, the new zone has **no CNAME records** — inter-service HTTP calls will get NXDOMAIN errors. To minimize this gap:
+
+1. Steps 1-5 above complete first (creates the new zones, certs, and public custom domains)
+2. **Immediately** redeploy all 14 ServerlessBackendStack stacks **in parallel** (they are independent — each only touches its own CNAME record)
+3. Verify internal DNS resolution after all stacks complete
+
 ```bash
-# For each service with ServerlessBackendStack:
-# catalogue, organizations, inventory, pricing, sales, access-control,
-# media, reporting-api, transfer, marketplace, integration, distribution-portal,
-# extension-api, customer-service
+# Redeploy all ServerlessBackendStack stacks IN PARALLEL to minimize CNAME gap.
+# Each service creates its CNAME record in the new private hosted zone.
+# These are independent — deploy all simultaneously.
+# Services: catalogue, organizations, inventory, pricing, sales, access-control,
+#   media, reporting-api, transfer, marketplace, integration, distribution-portal,
+#   extension-api, customer-service
 # Redeploy ONLY the ServerlessBackendStack (not DbMigrator, Consumers, etc.)
-cd ticketing-platform-<service>/src/TP.<Service>.Cdk
-cdk deploy TP-ServerlessBackendStack-<service>-prod --require-approval never
+
+# Run all 14 in parallel (example with background jobs):
+for service_dir in \
+  "ticketing-platform-catalogue/src/TP.Catalogue.Cdk:catalogue" \
+  "ticketing-platform-organizations/src/Organizations/TP.Organizations.Cdk:organizations" \
+  "ticketing-platform-inventory/src/TP.Inventory.Cdk:inventory" \
+  "ticketing-platform-pricing/src/TP.Pricing.Cdk:pricing" \
+  "ticketing-platform-sales/src/TP.Sales.Cdk:sales" \
+  "ticketing-platform-access-control/src/TP.AccessControl.Cdk:access-control" \
+  "ticketing-platform-media/src/TP.Media.Cdk:media" \
+  "ticketing-platform-reporting-api/src/TP.ReportingService.Cdk:reporting" \
+  "ticketing-platform-transfer/src/TP.Transfer.Cdk:transfer" \
+  "ticketing-platform-marketplace-service/src/TP.Marketplace.Cdk:marketplace" \
+  "ticketing-platform-integration/src/TP.Integration.Cdk:integration" \
+  "ticketing-platform-distribution-portal/src/TP.DistributionPortal.Cdk:dp" \
+  "ticketing-platform-extension-api/TP.Extensions.Cdk:extensions" \
+  "ticketing-platform-customer-service/src/TP.Customers.Cdk:customers"; do
+  dir="${service_dir%%:*}"
+  svc="${service_dir##*:}"
+  (cd "$dir" && cdk deploy TP-ServerlessBackendStack-$svc-prod --require-approval never) &
+done
+wait  # Wait for all parallel deploys to finish
+
+# Verify internal DNS resolution
+dig +short catalogue.internal.production.tickets.mdlbeast.net
 ```
 
 ### 4.4 Update GitHub Secrets & Variables

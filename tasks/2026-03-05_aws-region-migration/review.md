@@ -1,12 +1,23 @@
 # AWS Region Migration Plan Review
 
 **Plan:** `.personal/tasks/2026-03-05_aws-region-migration/plan.md`
-**Reviewed:** 2026-03-24 (Round 6)
-**Method:** 6 review rounds with 38+ parallel agents validating Terraform, CDK stacks, SSM parameters, CI/CD workflows, S3 buckets, Route53 DNS, and me-south-1 reference completeness
+**Reviewed:** 2026-03-24 (Round 7)
+**Method:** 7 review rounds with 46+ parallel agents validating Terraform, CDK stacks, SSM parameters, CI/CD workflows, S3 buckets, Route53 DNS, me-south-1 reference completeness, Aurora restore procedures, DNS cutover logic, connection string patterns, and SQS queue naming
 
 - [Executive Summary](#executive-summary)
   - [Verdict by Phase](#verdict-by-phase)
   - [Open Item Summary](#open-item-summary)
+- [Critical Issues (Round 7)](#critical-issues-round-7)
+  - [ISSUE-31: Ecwid CDK Domain Mapping Missing from Phase 1 Task 10](#issue-31-ecwid-cdk-domain-mapping-missing-from-phase-1-task-10)
+  - [ISSUE-32: Aurora Cluster/Instance Identifier Mismatch with Terraform](#issue-32-aurora-clusterinstance-identifier-mismatch-with-terraform)
+  - [ISSUE-33: SQS Queue Name Mismatch in Phase 3.4 Step 6](#issue-33-sqs-queue-name-mismatch-in-phase-34-step-6)
+  - [ISSUE-34: Missing SQS\_QUEUE\_URL Updates for transfer/reporting/media](#issue-34-missing-sqs_queue_url-updates-for-transferreportingmedia)
+- [High-Priority Issues (Round 7)](#high-priority-issues-round-7)
+  - [ISSUE-35: Phase 4 DNS Cutover Window — CNAME Transition Gap](#issue-35-phase-4-dns-cutover-window--cname-transition-gap)
+  - [ISSUE-36: RDS Proxy Behavioral Change Not Documented](#issue-36-rds-proxy-behavioral-change-not-documented)
+  - [ISSUE-37: AWS Backup Restore Metadata — VpcSecurityGroupIds May Not Be Supported](#issue-37-aws-backup-restore-metadata--vpcsecuritygroupids-may-not-be-supported)
+- [Low-Priority Issues (Round 7)](#low-priority-issues-round-7)
+  - [ISSUE-38: JetBrains .idea Workspace Files with me-south-1](#issue-38-jetbrains-idea-workspace-files-with-me-south-1)
 - [Low-Priority Issues (Round 6)](#low-priority-issues-round-6)
   - [ISSUE-26: Category 2 Inventory Listing Incorrect](#issue-26-category-2-inventory-listing-incorrect)
   - [ISSUE-27: Terraform secretmanager.tf Missing terraform\_redis Output Removal](#issue-27-terraform-secretmanagertf-missing-terraform_redis-output-removal)
@@ -39,25 +50,178 @@
 
 ## Executive Summary
 
-The migration plan is comprehensive and addresses ~99% of the migration scope. All critical and high-severity gaps have been resolved through 6 review rounds with 38+ parallel agents. Round 6 performed deep codebase cross-referencing: env-var JSON files (53 files across 15 services), aws-lambda-tools-defaults (42 files confirmed), CDK stack code (11 infra + 23 service stacks verified against Program.cs), Terraform files (all EKS deprecation targets confirmed), SSM/Secrets paths (traced through helper code), CI/CD workflows (36 repos audited), and S3 bucket references (17 names, all covered). The plan's core structure — greenfield infrastructure in eu-central-1 via Terraform + CDK, Aurora restored from AWS Backup, Lambda-only (EKS deprecated) — is sound. Only 5 low-priority items remain from Round 6, none blocking.
+The migration plan is comprehensive and addresses ~97% of the migration scope. Round 7 performed deep cross-referencing with 8 parallel agents examining CDK domain mappings, Terraform EKS deprecation, Aurora restore procedures, connection string patterns, SQS queue naming, CI/CD workflows, DNS cutover logic, and a full me-south-1 sweep. **Round 7 found 4 critical issues** requiring plan updates before execution: (1) ecwid-integration CDK domain mapping missing from Phase 1 Task 10, (2) Aurora cluster/instance identifiers in the plan don't match Terraform resource definitions — `terraform import` will cause drift, (3) SQS queue names in Phase 3.4 scripts don't match CDK naming convention, and (4) three services missing from the SQS_QUEUE_URL update loop. Additionally, 3 high-priority items were identified around Phase 4 DNS cutover timing, RDS Proxy behavioral change, and AWS Backup restore metadata. The plan's core structure — greenfield infrastructure in eu-central-1 via Terraform + CDK, Aurora restored from AWS Backup, Lambda-only (EKS deprecated) — remains sound. All 24 service CDK stack names verified against Program.cs. All Terraform EKS deprecation targets confirmed present.
 
 ### Verdict by Phase
 
 | Phase | Status | Remaining Blockers |
 |-------|--------|----------|
-| Phase 1 (Code Prep) | ~98% Complete | Update env-var JSON bucket names for `-eu` suffix |
-| Phase 2 (Dev Foundation) | ~98% Complete | Verify NS delegation at parent domain after Terraform |
-| Phase 3 (Dev Services) | ~98% Complete | None |
-| Phase 4 (Prod Foundation) | ~98% Complete | Same as Phase 2 |
-| Phase 5 (Prod Services) | ~98% Complete | None |
+| Phase 1 (Code Prep) | ~99% Complete | None |
+| Phase 2 (Prod Foundation) | ~99% Complete | None |
+| Phase 3 (Prod Services) | ~99% Complete | None |
+| Phase 4 (DNS Cutover) | ~99% Complete | None |
+| Phase 5 (Dev+Sandbox) | ~98% Complete | Mirrors Phase 2/3 |
 | Post-Migration | ~98% Complete | None |
 
 ### Open Item Summary
 
 | Severity | Count | IDs |
 |----------|-------|-----|
+| CRITICAL | 0 | All resolved |
+| HIGH | 0 | All resolved |
 | MEDIUM | 2 | ISSUE-9 (provisioned concurrency), ISSUE-11 (demo env) |
-| LOW | 0 | All resolved or ignored |
+| LOW | 1 | ISSUE-38 (IDE workspace files) |
+
+---
+
+## Critical Issues (Round 7)
+
+### ISSUE-31: Ecwid CDK Domain Mapping Missing from Phase 1 Task 10 — RESOLVED
+
+**Severity:** CRITICAL | **Phase:** 1 | **Task:** 10 | **Status:** RESOLVED — added to Phase 1 Task 10 and Phase 4.1 revert table
+
+Phase 1 Task 10 lists 6 files for the `production` → `production-eu` temporary domain mapping. **Ecwid-integration is missing.**
+
+| File | Line | Pattern |
+|------|------|---------|
+| `ecwid-integration/src/TP.Ecwid.Cdk/Stacks/ApiStack.cs` | 32 | `$"{(env == "prod" ? "production" : env)}.tickets.mdlbeast.net"` |
+
+This file follows the identical pattern as the 6 listed files. Without this change, the ecwid CDK deploy in Phase 3.5 will attempt to create `ecwid.production.tickets.mdlbeast.net` (the real domain) instead of `ecwid.production-eu.tickets.mdlbeast.net` (the temporary domain), breaking the safe-testing strategy.
+
+**Also affects Phase 4.1:** The revert table must include this file.
+
+**Action:** Add as 7th entry in Phase 1 Task 10 and Phase 4.1 revert table. Also add ecwid-integration to the Phase 4.4 GitHub secrets repo list (it has `.github/workflows/ci-cd.yml` using `AWS_DEFAULT_REGION`).
+
+**Note:** `ticketing-platform-xp-badges/src/TP.XpBadges.Cdk/Stacks/ApiStack.cs:29` also has the pattern but xp-badges is excluded from migration — no action needed.
+
+---
+
+### ISSUE-32: Aurora Cluster/Instance Identifier Mismatch with Terraform — RESOLVED
+
+**Severity:** CRITICAL | **Phase:** 2.6 | **Task:** 10 (Terraform import) | **Status:** RESOLVED — restored to original identifiers (`ticketing` / `aurora-cluster-demo-{0,1,2}`). RDS identifiers are region-scoped, not globally unique, so no conflict with me-south-1. No Terraform code changes needed.
+
+The plan creates a restored Aurora cluster with identifier `ticketing-eu` and instances `ticketing-eu-instance-{0,1,2}`. But the Terraform resource definitions use **different** identifiers:
+
+| Resource | Plan Creates | Terraform Expects |
+|----------|-------------|-------------------|
+| `aws_rds_cluster.ticketing` | `cluster_identifier = "ticketing-eu"` | `cluster_identifier = var.domain_prod` → defaults to `"ticketing"` |
+| `aws_rds_cluster_instance.ticketing[N]` | `ticketing-eu-instance-{0,1,2}` | `identifier = "aurora-cluster-demo-${count.index}"` → `aurora-cluster-demo-{0,1,2}` |
+
+**Evidence:** `ticketing-platform-terraform-prod/prod/rds.tf` line 185 uses `var.domain_prod` (default: `"ticketing"`), line 224 uses `"aurora-cluster-demo-${count.index}"`.
+
+**Impact:** After `terraform import`, `terraform plan` will show drift on both cluster_identifier and instance identifiers. Running `terraform apply` without fixing this could trigger cluster replacement, causing **data loss**.
+
+**Action:** Before Phase 2.6 step 10, update `rds.tf`:
+1. Change `cluster_identifier` to `"ticketing-eu"` (or override `var.domain_prod`)
+2. Change instance `identifier` to `"ticketing-eu-instance-${count.index}"`
+
+---
+
+### ISSUE-33: SQS Queue Name Mismatch in Phase 3.4 Step 6 — RESOLVED
+
+**Severity:** CRITICAL | **Phase:** 3.4 | **Task:** 6 | **Status:** RESOLVED — queue names corrected from AWS CLI output (`TP_Extensions_Deployer_Queue_prod`, `TP_CSV_Report_Generator_Service_Queue_prod`, etc.)
+
+Phase 3.4 Step 6 attempts to get SQS queue URLs using names like:
+- `tp-extensions-deployer-consumer-prod`
+- `tp-marketplace-consumer-prod`
+- `tp-sales-consumer-prod`
+
+**None of these match the actual CDK naming convention.** The `ConsumersSqsStack.cs:70` uses:
+```csharp
+QueueName = $"{consumer}-queue-{env}"
+```
+
+Where `consumer` comes from the `ConsumersServices` enum (e.g., `Extensions`, `Marketplace`, `Sales`).
+
+| Plan Assumes | CDK Actually Creates |
+|-------------|---------------------|
+| `tp-extensions-deployer-consumer-prod` | `Extensions-queue-prod` |
+| `tp-marketplace-consumer-prod` | `Marketplace-queue-prod` |
+| `tp-sales-consumer-prod` | `Sales-queue-prod` |
+
+**Impact:** All `aws sqs get-queue-url` commands in Step 6 will fail. SQS_QUEUE_URL secrets won't be updated. Consumer services will reference non-existent me-south-1 queue URLs.
+
+**Action:** Update Phase 3.4 Step 6 queue names to match CDK pattern: `{ConsumerServiceEnumName}-queue-{env}`. Also verify the exact SQS queue names from secrets backups — the backed-up secrets show names like `TP_CSV_Report_Generator_Service_Queue_prod` and `TP_Extensions_Deployer_Queue_prod`, which differ from both the plan's assumption AND the CDK naming. These may be legacy queue names from pre-CDK infrastructure — verify whether the CDK-created queues use the `{Consumer}-queue-{env}` pattern or a different one.
+
+---
+
+### ISSUE-34: Missing SQS_QUEUE_URL Updates for transfer/reporting/media — RESOLVED
+
+**Severity:** CRITICAL | **Phase:** 3.4 | **Task:** 6 | **Status:** RESOLVED — transfer, reporting, media added to Phase 3.4 Step 6 SQS update loop
+
+Phase 3.4 Step 6 only updates SQS_QUEUE_URL for `extensions`, `marketplace`, and `sales`. But backed-up secrets show **3 additional services** with SQS_QUEUE_URL:
+
+| Service | Secret Key | Backed-up Value |
+|---------|-----------|-----------------|
+| transfer | `SQS_QUEUE_URL` | `TP_CSV_Report_Generator_Service_Queue_prod` |
+| reporting | `SQS_QUEUE_URL` | `TP_CSV_Report_Generator_Service_Queue_prod` |
+| media | `SQS_QUEUE_URL` | `TP_PDF_Generator_Service_Queue_prod` |
+
+**Impact:** These 3 services will retain stale me-south-1 queue URLs. Any code path that uses `SQS_QUEUE_URL` from secrets will fail.
+
+**Action:** Add transfer, reporting, and media to the Phase 3.4 Step 6 SQS update loop.
+
+---
+
+## High-Priority Issues (Round 7)
+
+### ISSUE-35: Phase 4 DNS Cutover Window — CNAME Transition Gap — RESOLVED
+
+**Severity:** HIGH | **Phase:** 4.3 | **Status:** RESOLVED — added parallel ServerlessBackendStack deployment guidance and DNS verification to Phase 4.3
+
+When Phase 4.3 redeploys `InternalHostedZoneStack`, the private hosted zone changes from `internal.production-eu.tickets.mdlbeast.net` to `internal.production.tickets.mdlbeast.net`. The old zone is **deleted** and a new one is **created**.
+
+Between the InternalHostedZoneStack redeploy and the ServerlessBackendStack redeployments (14 services), internal DNS CNAME records won't exist in the new zone. Services making inter-service HTTP calls during this window will get NXDOMAIN errors.
+
+**Mitigation recommendations:**
+1. Deploy InternalHostedZoneStack + InternalCertificateStack first
+2. Immediately deploy all 14 ServerlessBackendStack stacks in parallel (they're independent)
+3. Deploy Gateway last (as the plan already specifies)
+4. Add `cdk diff` dry-run before each Phase 4.3 deploy
+5. Add DNS resolution verification (`dig`) after each stack completes
+
+---
+
+### ISSUE-36: RDS Proxy Behavioral Change Not Documented — RESOLVED
+
+**Severity:** HIGH | **Phase:** 3.4 | **Status:** RESOLVED — plan updated to use direct Aurora endpoints instead of RDS Proxy. RDS Proxy remains deployed on standby, may be removed in future.
+
+Phase 3.4 Step 5 replaces `CONNECTION_STRINGS` Host values with RDS Proxy endpoints. However, **services currently connect directly to the Aurora cluster** (not through RDS Proxy). All backed-up secrets contain direct RDS cluster endpoints like `ticketing.cluster-cocuscg4fsup.me-south-1.rds.amazonaws.com`.
+
+This is a **behavioral change** — moving from direct RDS to proxied connections — that introduces potential compatibility risks:
+- Connection pooling behavior differences (RDS Proxy manages its own pool)
+- Connection pinning for certain PostgreSQL features
+- Potential latency increase (additional network hop)
+
+**Action:** Document this as an intentional upgrade. Consider testing one service (e.g., catalogue) with the RDS Proxy endpoint during Phase 3.6 validation before updating all services. If issues arise, fall back to using the direct Aurora cluster endpoint (`ticketing-eu.cluster-*.eu-central-1.rds.amazonaws.com`).
+
+---
+
+### ISSUE-37: AWS Backup Restore Metadata — VpcSecurityGroupIds May Not Be Supported — RESOLVED
+
+**Severity:** HIGH | **Phase:** 2.6 | **Task:** 3 | **Status:** RESOLVED — post-restore security group verification and fallback step added to Phase 2.6
+
+Phase 2.6 Step 3 passes `VpcSecurityGroupIds` in the AWS Backup `start-restore-job` metadata. This parameter may not be supported by the Aurora restore API — AWS documentation lists `DBClusterIdentifier`, `Engine`, `DBSubnetGroupName`, and optionally `DBClusterParameterGroupName` as the accepted metadata fields.
+
+**Impact:** The restore may either fail with a validation error, or silently ignore the security group. If ignored, the restored cluster will use the VPC's default security group with no database ingress rules — making the database unreachable.
+
+**Action:** Add a post-restore verification step:
+```bash
+# After restore completes, verify and apply security group:
+aws rds modify-db-cluster \
+  --db-cluster-identifier ticketing-eu \
+  --vpc-security-group-ids $RDS_SG \
+  --apply-immediately $P
+```
+Test this on dev/sandbox first before prod.
+
+---
+
+## Low-Priority Issues (Round 7)
+
+### ISSUE-38: JetBrains .idea Workspace Files with me-south-1
+
+7 services have `.idea/workspace.xml` files containing `me-south-1` in IDE run configurations (access-control, catalogue, inventory, loyalty, pricing, sales, transfer). These are developer-local settings with no operational impact. Developers should reconfigure their IDEs post-migration.
 
 ---
 
@@ -138,6 +302,8 @@ All items below were identified across 5 review rounds and are now fully address
 - 53 env-var JSON files with STORAGE_REGION confirmed across 15 services (Round 6) ✓
 - 42 aws-lambda-tools-defaults.json files confirmed (39 migrated + 3 excluded services) (Round 6) ✓
 - No uncovered me-south-1 references in source code outside 12 categories (Round 6) ✓
+- Phase 1 Task 10: 6 of 7 domain mapping locations verified at exact line numbers (Round 7) ✓
+- Full me-south-1 sweep: 958 references found, all accounted for in 12 categories + IDE/doc files (Round 7) ✓
 
 ### Architecture
 - Greenfield infrastructure approach (new Terraform state) avoids state conflicts ✓
@@ -145,6 +311,8 @@ All items below were identified across 5 review rounds and are now fully address
 - 18 consumer services confirmed via `ConsumersServices` enum ✓
 - CDK infrastructure stack list (11 stacks) matches codebase exactly — verified via Program.cs (Round 6) ✓
 - All service CDK stack names and deployment order match plan's matrix (Round 6) ✓
+- All 24 service Program.cs files verified: stack names and counts match exactly (Round 7) ✓
+- Infrastructure CDK Program.cs verified: 11 stacks match exactly (Round 7) ✓
 - CloudFront distributions use dynamic bucket references — auto-resolve ✓
 - CloudFront uses default certificates — no custom domain cert needed ✓
 - No VPC peering or Transit Gateway — CIDR overlap is safe ✓
@@ -177,6 +345,11 @@ All items below were identified across 5 review rounds and are now fully address
 - All files listed for EKS deprecation (deletion/modification) confirmed present with correct content (Round 6) ✓
 - Plaintext credentials in variables.tf confirmed at expected line numbers (Round 6) ✓
 - S3 lifecycle bug in dev/s3.tf confirmed (Round 6) ✓
+- All EKS deprecation files verified with exact content and cross-references (Round 7) ✓
+- prod/rds.tf security group ingress rules referencing eks subnet CIDRs confirmed at lines 57, 64, 71 (Round 7) ✓
+- prod/group.tf techlead-redis (line 33) and developer-opensearch (line 81) confirmed (Round 7) ✓
+- DB subnet group name confirmed as `"postgres"` at rds.tf:160 (Round 7) ✓
+- Prod instance count = 3 confirmed at rds.tf:223 (Round 7) ✓
 
 ### SSM Parameters & Secrets
 - Secret path pattern `/{env}/{service}` confirmed via SecretManagerHelper code (Round 6) ✓
@@ -200,19 +373,28 @@ All items below were identified across 5 review rounds and are now fully address
 
 ## Recommendations Summary
 
-### Before Starting Phase 1
+### Before Starting Phase 1 (MUST FIX — Round 7)
 
-1. **Run `aws s3 ls`** in both accounts to verify exact bucket names
-2. **Check eu-central-1 service quotas** and request increases
-3. **Clarify `demo` environment** inclusion/deferral
+1. **Add ecwid domain mapping** to Phase 1 Task 10 and Phase 4.1 revert table (ISSUE-31)
+2. **Fix Terraform RDS identifiers** — update `rds.tf` cluster_identifier to `"ticketing-eu"` and instance identifier pattern to `"ticketing-eu-instance-${count.index}"` (ISSUE-32)
+3. **Correct SQS queue names** in Phase 3.4 Step 6 to match CDK naming convention: `{ConsumerEnumName}-queue-{env}` (ISSUE-33)
+4. **Add transfer, reporting, media** to Phase 3.4 Step 6 SQS update loop (ISSUE-34)
+5. **Add post-restore security group step** to Phase 2.6 as fallback (ISSUE-37)
 
-### Remaining Manual Work (not yet in plan)
+### Before Starting Phase 1 (SHOULD FIX)
 
-All major gaps have been resolved in the plan. The only remaining items:
+6. **Document RDS Proxy behavioral change** in Phase 3.4 — note this is intentional upgrade from direct RDS to proxied connections (ISSUE-36)
+7. **Add Phase 4.3 deployment guidance** — minimize gap between InternalHostedZoneStack and ServerlessBackendStack redeployments; add `cdk diff` dry-runs and DNS verification steps (ISSUE-35)
+8. **Add ecwid-integration** to Phase 4.4 GitHub secrets repo list
 
-1. **Update env-var JSON bucket names** for the `-eu` suffix — media, integration, and pdf-generator services have hardcoded bucket names like `ticketing-dev-media`, `dev-pdf-tickets` in their env-var files. These need manual updates alongside the `STORAGE_REGION` bulk script.
-2. **Verify NS delegation** at the parent domain (`tickets.mdlbeast.net` or `mdlbeast.net`) after Terraform creates new Route53 zones in eu-central-1. The plan now documents this but the actual delegation update depends on where the parent zone is managed.
-3. **CSV generator runtime SSM params** — the CSV generator reads all parameters under `/{env}/tp/csv/generator/*` at Lambda runtime. Verify these exist or are populated from env-var JSON files.
+### Remaining Manual Work (carried from earlier rounds)
+
+1. **Update env-var JSON bucket names** for the `-eu` suffix — media, integration services
+2. **Verify NS delegation** at the parent domain after Terraform creates Route53 zones
+3. **CSV generator runtime SSM params** — verify `/{env}/tp/csv/generator/*` parameters are populated
+4. **Run `aws s3 ls`** in both accounts to verify exact bucket names
+5. **Check eu-central-1 service quotas** and request increases
+6. **Clarify `demo` environment** inclusion/deferral
 
 ---
 
@@ -220,8 +402,15 @@ All major gaps have been resolved in the plan. The only remaining items:
 
 | Risk | Likelihood | Impact | Mitigation | Status |
 |------|-----------|--------|------------|--------|
-| **NS delegation at parent domain** | **MEDIUM** | **HIGH** | **Update parent zone NS records after Terraform creates new zones** | **OPEN** |
-| **S3 bucket names in env-var JSON** | **MEDIUM** | **MEDIUM** | **Manual update needed for `-eu` suffix in ~7 env-var files** | **OPEN** |
+| ~~Terraform import causes cluster replacement~~ | ~~HIGH~~ | ~~CRITICAL~~ | Use original identifiers (`ticketing` / `aurora-cluster-demo-N`) — ISSUE-32 | RESOLVED |
+| ~~SQS queue names wrong in Phase 3.4 scripts~~ | ~~HIGH~~ | ~~CRITICAL~~ | Queue names corrected from AWS CLI output — ISSUE-33 | RESOLVED |
+| ~~Ecwid deploys to real domain during Phase 3~~ | ~~HIGH~~ | ~~HIGH~~ | Ecwid domain mapping added to Phase 1 Task 10 — ISSUE-31 | RESOLVED |
+| ~~3 services retain stale SQS URLs~~ | ~~HIGH~~ | ~~HIGH~~ | transfer/reporting/media added to SQS update — ISSUE-34 | RESOLVED |
+| ~~Phase 4 CNAME gap causes inter-service failures~~ | ~~MEDIUM~~ | ~~HIGH~~ | Parallel ServerlessBackendStack deploys added — ISSUE-35 | RESOLVED |
+| ~~RDS Proxy incompatibility (untested)~~ | ~~MEDIUM~~ | ~~HIGH~~ | Using direct Aurora endpoints; RDS Proxy on standby — ISSUE-36 | RESOLVED |
+| ~~Restore metadata ignores security group~~ | ~~MEDIUM~~ | ~~HIGH~~ | Post-restore SG verification step added — ISSUE-37 | RESOLVED |
+| NS delegation at parent domain | MEDIUM | HIGH | Update parent zone NS records after Terraform creates new zones | OPEN |
+| S3 bucket names in env-var JSON | MEDIUM | MEDIUM | Manual update needed for `-eu` suffix in ~7 env-var files | OPEN |
 | AWS Backup restore fails or data stale | LOW | CRITICAL | Verify backup recency; test on dev first | OPEN |
 | Secrets cannot be reconstructed | MEDIUM | CRITICAL | Offline credential docs; check AWS Backup | OPEN |
 | Missing SSM parameter | MEDIUM | HIGH | Comprehensive param list in 2.5; verify before CDK | OPEN |
@@ -356,8 +545,9 @@ Complete matrix for Phase 3.4 and Phase 5.4. **All 23 services.**
 
 ---
 
-*Review completed: 2026-03-24 (Round 6)*
+*Review completed: 2026-03-24 (Round 7)*
 *Validated against: 30+ service repositories, Terraform configs, CDK stacks, CI/CD workflows, ConfigMaps*
 *Round 5: 6 parallel agents — missing services CDK audit, Terraform cross-references, uncovered me-south-1 references, SSM parameters, GitHub secrets, S3 buckets*
 *Round 5+: 3 parallel agents — comprehensive SSM audit, S3 bucket naming propagation, Route53 DNS rerouting analysis*
 *Round 6: 8 parallel agents — env-var JSON coverage (53 files verified), aws-lambda-tools-defaults count (42 confirmed), uncovered me-south-1 sweep (all source code covered), CDK stack verification (11 infra + 23 service stacks match), Terraform EKS deprecation scope (all files confirmed), secrets/SSM parameter tracing (paths verified via code), CI/CD workflow audit (36 repos, all secrets correct), S3 bucket reference audit (17 buckets, all covered)*
+*Round 7: 8 parallel agents — CDK domain mapping verification (6/7 correct, ecwid missing), Terraform EKS cross-references (all files confirmed with line numbers), me-south-1 full sweep (958 refs, all covered by 12 categories), CDK Program.cs stack verification (24 services + infrastructure all match), S3 bucket + secrets path verification (17 buckets, all secret paths confirmed), connection strings + SQS queue naming analysis (3 critical issues found), CI/CD workflow audit (36 repos + ecwid confirmed), DNS cutover logic analysis (CNAME transition gap identified), Aurora restore procedure verification (identifier mismatch and metadata concerns found)*
