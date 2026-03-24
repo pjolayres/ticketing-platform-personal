@@ -88,7 +88,7 @@ These parameters are read at `cdk synth` time. If missing, the CDK deploy fails.
 | 2 | `/{env}/tp/SUBNET_1` | `CdkStackUtilities.GetSubnets()` | Lambda subnet ID | **NOT BACKED UP** |
 | 3 | `/{env}/tp/SUBNET_2` | `CdkStackUtilities.GetSubnets()` | Lambda subnet ID | **BACKED UP** — value: `027eaf2f55be58e82` |
 | 4 | `/{env}/tp/SUBNET_3` | `CdkStackUtilities.GetSubnets()` | Lambda subnet ID | **BACKED UP** — value: `0b62e26a6ef8bb536` |
-| 5 | `/rds/ticketing-cluster-identifier` | `RdsProxyStack` | Aurora cluster import | **BACKED UP** — value: `ticketing` |
+| 5 | `/rds/ticketing-cluster-identifier` | `RdsProxyStack` | Aurora cluster import | **BACKED UP** — value: `ticketing` (correct — RDS identifiers are region-scoped, reuse original name per ISSUE-32 fix) |
 | 6 | `/rds/ticketing-cluster-sg` | `RdsProxyStack` | RDS security group import | **NOT BACKED UP** |
 | 7 | `/{env}/tp/DomainCertificateArn` | `GatewayStack` | Gateway API custom domain cert | **NOT BACKED UP** — new cert needed |
 | 8 | `/{env}/tp/geidea/DomainCertificateArn` | `Geidea ApiStack` | Geidea API custom domain cert | **NOT BACKED UP** — new cert needed |
@@ -104,7 +104,7 @@ These parameters are read at `cdk synth` time. If missing, the CDK deploy fails.
 **Notes:**
 - Parameters 7-11 (certificate ARNs) cannot be restored from backup — ACM certificates are region-specific and must be newly issued in eu-central-1. The plan correctly handles this in Phase 3.2.
 - Parameters 2-4 (subnet IDs) and 6 (security group ID) will have new values from Terraform output.
-- Parameter 5 (`/rds/ticketing-cluster-identifier`) backup value is `ticketing` but plan uses `ticketing-eu` for the new cluster. Update accordingly.
+- Parameter 5 (`/rds/ticketing-cluster-identifier`) backup value is `ticketing` — this is correct. Per ISSUE-32 fix, the restored cluster reuses the original identifier (RDS identifiers are region-scoped, not globally unique).
 - Parameter 10 (`bandsintown-integration/DomainCertificateArn`) lives under the same path prefix that the bandsintown Lambda reads at runtime. The CDK reads it at synth time; the Lambda harmlessly picks it up as an env var.
 - Parameter 11 (marketing-feeds) — same pattern as bandsintown.
 
@@ -158,7 +158,7 @@ All other services (20+) use only Pattern 2 (`ParameterStoreHelper.LoadParameter
 | `/prod/tp/VPC_NAME` | `ticketing` | **YES** — static name, unchanged |
 | `/prod/tp/SUBNET_2` | `027eaf2f55be58e82` | **NO** — old me-south-1 subnet ID |
 | `/prod/tp/SUBNET_3` | `0b62e26a6ef8bb536` | **NO** — old me-south-1 subnet ID |
-| `/rds/ticketing-cluster-identifier` | `ticketing` | **PARTIAL** — plan uses `ticketing-eu` for new cluster |
+| `/rds/ticketing-cluster-identifier` | `ticketing` | **YES** — reuse original name (region-scoped, per ISSUE-32 fix) |
 | `/prod/tp/InternalDomainCertificateArn` | `arn:aws:acm:me-south-1:...` | **NO** — me-south-1 cert, auto-recreated by CDK |
 | `/prod/tp/SlackNotification/IgnoredErrorsPatterns` | `info:,Information` | **YES** — region-independent filter config |
 
@@ -174,13 +174,13 @@ These parameters need new values but their source is deterministic — Terraform
 | `/{env}/tp/SUBNET_2` | Same | Phase 2.4 |
 | `/{env}/tp/SUBNET_3` | Same | Phase 2.4 |
 | `/rds/ticketing-cluster-sg` | `aws ec2 describe-security-groups` after Terraform apply | Phase 2.4 |
-| `/rds/ticketing-cluster-identifier` | Set to `ticketing-eu` (new cluster name) | Phase 2.6 |
+| `/rds/ticketing-cluster-identifier` | Set to `ticketing` (reuse original, per ISSUE-32) | Phase 2.6 |
 | `/{env}/tp/DomainCertificateArn` | ACM cert issuance | Phase 3.2 |
 | `/{env}/tp/geidea/DomainCertificateArn` | ACM cert issuance | Phase 3.2 |
 | `/{env}/tp/xp-badges/DomainCertificateArn` | ACM cert issuance | Phase 3.2 |
 | `/{env}/tp/bandsintown-integration/DomainCertificateArn` | ACM cert issuance | Phase 3.2 |
 | `/{env}/tp/marketing-feeds/DomainCertificateArn` | ACM cert issuance | Phase 3.2 |
-| `/{env}/tp/pdf/generator/STORAGE_BUCKET_NAME` | New bucket name: `pdf-tickets-prod-eu` | Phase 2.5 |
+| `/{env}/tp/pdf/generator/STORAGE_BUCKET_NAME` | New bucket name: `tickets-pdf-download-eu` | Phase 2.5 |
 
 **No reconstruction effort required** — values are derived from infrastructure provisioning steps already in the plan.
 
@@ -233,7 +233,7 @@ These parameters contain configuration or credentials that cannot be derived fro
 
 | # | Parameter Name | Type | Source for Reconstruction | Critical |
 |---|----------------|------|---------------------------|----------|
-| 1 | `STORAGE_BUCKET_NAME` | String | New bucket name: `{env}-pdf-tickets-eu` (prod: `pdf-tickets-prod-eu`) | YES |
+| 1 | `STORAGE_BUCKET_NAME` | String | New bucket name: `{env}-pdf-tickets-eu` (prod: `tickets-pdf-download-eu`) | YES |
 | 2 | `PDF_SERVICE_URL` | String | External PDF generation API base URL — same value as `PDF_SERVICE_URL` in media secret backup | YES |
 | 3 | `PDF_SERVICE_API_KEY` | SecureString | PDF service credentials — same value as `PDF_SERVICE_API_KEY` in media secret backup | YES |
 | 4 | `PDF_SERVICE_API_SECRET` | SecureString | PDF service credentials — same value as `PDF_SERVICE_API_SECRET` in media secret backup | YES |
@@ -252,7 +252,9 @@ These parameters contain configuration or credentials that cannot be derived fro
 
 **Cross-reference with secrets:** The media service secret backup contains `PDF_SERVICE_URL`, `PDF_SERVICE_API_KEY`, `PDF_SERVICE_API_SECRET`, and `PDF_SERVICE_WORKSPACE_ID`. These are the same third-party credentials. Copy values from the media secret backup to these SSM parameters.
 
-### Bandsintown Integration
+### Bandsintown Integration — EXCLUDED FROM MIGRATION
+
+> **Note:** Bandsintown and Marketing Feeds are excluded from migration (deprecated services — see Decisions table in plan.md). The SSM parameters below are documented for reference only. Do NOT create them in eu-central-1 unless these services are explicitly reinstated.
 
 **SSM Path:** `/{env}/tp/bandsintown-integration/`
 **Lambda:** `TP.Bandsintown.Integration.Lambda/Function.cs`
@@ -291,7 +293,7 @@ These parameters contain configuration or credentials that cannot be derived fro
 
 **Cross-reference:** `AUTH_*` parameters share the same Auth0 tenant as other services. If Auth0 credentials are recovered for secrets reconstruction (e.g., organizations service has `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET`, `AUTH_DOMAIN`), these may be the same or different client credentials — verify in Auth0 dashboard.
 
-### Marketing Feeds
+### Marketing Feeds — EXCLUDED FROM MIGRATION
 
 **SSM Path:** `/{env}/tp/marketing-feeds/`
 **Lambda:** `TP.Marketing.Feeds.Lambda/Function.cs`

@@ -1,8 +1,8 @@
 # AWS Region Migration Plan Review
 
 **Plan:** `.personal/tasks/2026-03-05_aws-region-migration/plan.md`
-**Reviewed:** 2026-03-25 (Round 8)
-**Method:** 8 review rounds with 46+ parallel agents + AWS CLI live verification against me-south-1 prod account (660748123249). Round 8 validated: S3 buckets, Lambda functions, RDS cluster, SQS queues, Secrets Manager, Route53 zones, DNS records, CloudFront distributions, EventBridge buses, KMS keys, IAM users, and AWS Backup recovery points in eu-central-1.
+**Reviewed:** 2026-03-25 (Round 9)
+**Method:** 9 review rounds with 53+ parallel agents + AWS CLI live verification against me-south-1 prod account (660748123249). Round 8 validated: S3 buckets, Lambda functions, RDS cluster, SQS queues, Secrets Manager, Route53 zones, DNS records, CloudFront distributions, EventBridge buses, KMS keys, IAM users, and AWS Backup recovery points in eu-central-1. Round 9: 7 parallel agents cross-referencing CDK domain mappings, Terraform EKS deprecation, me-south-1 full sweep, CDK stack verification, secrets/SSM tracing, S3 bucket naming propagation, CI/CD workflows, and connection string/SQS update procedures.
 
 - [Executive Summary](#executive-summary)
   - [Verdict by Phase](#verdict-by-phase)
@@ -50,7 +50,7 @@
 
 ## Executive Summary
 
-The migration plan is comprehensive and addresses ~97% of the migration scope. Round 7 performed deep cross-referencing with 8 parallel agents examining CDK domain mappings, Terraform EKS deprecation, Aurora restore procedures, connection string patterns, SQS queue naming, CI/CD workflows, DNS cutover logic, and a full me-south-1 sweep. **Round 7 found 4 critical issues** requiring plan updates before execution: (1) ecwid-integration CDK domain mapping missing from Phase 1 Task 10, (2) Aurora cluster/instance identifiers in the plan don't match Terraform resource definitions — `terraform import` will cause drift, (3) SQS queue names in Phase 3.4 scripts don't match CDK naming convention, and (4) three services missing from the SQS_QUEUE_URL update loop. Additionally, 3 high-priority items were identified around Phase 4 DNS cutover timing, RDS Proxy behavioral change, and AWS Backup restore metadata. The plan's core structure — greenfield infrastructure in eu-central-1 via Terraform + CDK, Aurora restored from AWS Backup, Lambda-only (EKS deprecated) — remains sound. All 24 service CDK stack names verified against Program.cs. All Terraform EKS deprecation targets confirmed present.
+The migration plan is comprehensive and addresses ~98% of the migration scope. **Round 9** performed comprehensive codebase cross-referencing with 7 parallel agents verifying CDK domain mappings, Terraform EKS deprecation, me-south-1 reference sweep, CDK stack names/order, secrets/SSM parameters, S3 bucket naming propagation, CI/CD workflows, and connection string/SQS procedures. **Round 9 found 1 high-priority issue** (Phase 3 temporary domain breaks inter-service calls for loyalty/automations/ecwid/geidea services that don't load SSM InternalServices overrides) and **3 medium-priority corrections** (CONNECTION_STRINGS_Sales key doesn't exist, SQS_QUEUE_URL updates for non-extension services are harmless but unnecessary, automations TicketSender has hardcoded gateway URL). The plan's core structure remains sound. All prior critical/high issues from Rounds 7-8 remain resolved.
 
 ### Verdict by Phase
 
@@ -68,9 +68,69 @@ The migration plan is comprehensive and addresses ~97% of the migration scope. R
 | Severity | Count | IDs |
 |----------|-------|-----|
 | CRITICAL | 0 | All resolved |
-| HIGH | 0 | All resolved |
-| MEDIUM | 2 | ISSUE-9 (provisioned concurrency), ISSUE-11 (demo env) |
+| HIGH | 1 | ISSUE-39 (Phase 3 inter-service calls broken for loyalty/automations/ecwid/geidea) |
+| MEDIUM | 5 | ISSUE-9, ISSUE-11, ISSUE-40, ISSUE-41, ISSUE-42 |
 | LOW | 1 | ISSUE-38 (IDE workspace files) |
+
+---
+
+## High-Priority Issues (Round 9)
+
+### ISSUE-39: Phase 3 Temporary Domain Breaks Inter-Service Calls for 4 Services
+
+**Severity:** HIGH | **Phase:** 3.6 | **Status:** OPEN
+
+During Phase 3 (temporary `production-eu` domain), inter-service HTTP calls will fail for **loyalty, automations, ecwid-integration, and geidea (GatewayServiceBaseRoute only)** because these services rely on hardcoded env-var.prod.json base routes that won't resolve under the temporary domain.
+
+**Root cause:** Most services call `ParameterStoreHelper.LoadParametersToEnvironmentAsync("/{env}/tp/InternalServices")` at Lambda cold start, which overwrites env-var base routes with SSM-stored URLs containing the correct `production-eu` domain. However:
+
+| Service | Calls LoadParametersToEnvironmentAsync? | Env-var base routes used | Impact |
+|---------|----------------------------------------|--------------------------|--------|
+| **loyalty** | NO | PricingServiceBaseRoute, CatalogueServiceBaseRoute, SalesServiceBaseRoute, AccessControlServiceBaseRoute, OrganizationServiceBaseRoute, GatewayServiceBaseRoute | All inter-service calls fail |
+| **automations** | NO | API_URL (`api.production.tickets.mdlbeast.net`) | Scheduled Lambda API calls fail |
+| **ecwid-integration** | NO | CatalogueServiceBaseRoute, SalesServiceBaseRoute, AccessControlServiceBaseRoute, OrganizationServiceBaseRoute, ApiUrl | All inter-service calls fail |
+| **geidea** | YES (consumers/background jobs) | GatewayServiceBaseRoute only (`api.production.tickets.mdlbeast.net`) | Gateway is NOT in SSM InternalServices — this env-var is NOT overridden |
+
+**Why it fails:** During Phase 3, `*.internal.production.tickets.mdlbeast.net` has no private hosted zone in the new VPC (only `production-eu` exists). The public `api.production.tickets.mdlbeast.net` still has dead DNS pointing to me-south-1 API Gateways.
+
+**After Phase 4 DNS cutover:** All env-var base routes become correct again (`production.tickets.mdlbeast.net` resolves to eu-central-1 endpoints). This is strictly a Phase 3 testing limitation.
+
+**Recommendation:** Accept this as a known limitation of Phase 3 E2E testing. Document that loyalty, automations, ecwid, and geidea gateway calls can only be fully validated after Phase 4 DNS cutover. Phase 3.6 validation checklist should note these services are expected to have partial failures.
+
+---
+
+## Medium-Priority Issues (Round 9)
+
+### ISSUE-40: CONNECTION_STRINGS_Sales Key Does Not Exist in Codebase
+
+**Severity:** MEDIUM | **Phase:** 3.4 | **Status:** OPEN
+
+The plan's Phase 3.4 Step 5 Python script iterates over `['CONNECTION_STRINGS', 'CONNECTION_STRINGS_Sales']`. A codebase-wide search confirms `CONNECTION_STRINGS_Sales` does not exist in any `.cs` or `.json` file. All services (including Sales) use the standard `CONNECTION_STRINGS` key with `PgSql` and `ReadonlyPgSql` dict keys.
+
+**Impact:** Harmless — the Python script's `if cs_key not in secret: continue` skips it. No action required, but the plan should remove this reference for clarity.
+
+### ISSUE-41: SQS_QUEUE_URL Updates for Non-Extension Services Are Unnecessary
+
+**Severity:** MEDIUM | **Phase:** 3.4 | **Status:** OPEN
+
+Phase 3.4 Step 6 updates `SQS_QUEUE_URL` in secrets for marketplace, sales, transfer, reporting, and media. However:
+- No C# code reads `Environment.GetEnvironmentVariable("SQS_QUEUE_URL")`
+- These services publish CSV/PDF requests to **EventBridge** (not SQS directly)
+- Consumer Lambdas receive messages via CDK-configured SQS event source mappings (no URL needed)
+- Only `EXTENSION_DEPLOYER_SQS_QUEUE_URL` and `EXTENSION_EXECUTOR_SQS_QUEUE_URL` are actually read by code
+
+**Impact:** Harmless — updating a phantom key in Secrets Manager causes no issues. The `me-south-1` → `eu-central-1` replacement in SQS URLs (Step 5) is still correct for any queue URLs that happen to exist in secrets. No action required.
+
+### ISSUE-42: Automations TicketSender Hardcoded Gateway URL
+
+**Severity:** MEDIUM | **Phase:** Post-migration | **Status:** OPEN
+
+`ticketing-platform-automations/src/TP.Automations.TicketSender/Program.cs:302` contains:
+```csharp
+{ "apiUrl", "https://api.production.tickets.mdlbeast.net" },
+```
+
+This is a console utility app (not a deployed Lambda), so it has no operational impact during migration. After Phase 4 DNS cutover, the URL resolves correctly. Update post-migration as part of local dev settings cleanup (Category 10).
 
 ---
 
@@ -304,6 +364,9 @@ All items below were identified across 5 review rounds and are now fully address
 - No uncovered me-south-1 references in source code outside 12 categories (Round 6) ✓
 - Phase 1 Task 10: 6 of 7 domain mapping locations verified at exact line numbers (Round 7) ✓
 - Full me-south-1 sweep: 958 references found, all accounted for in 12 categories + IDE/doc files (Round 7) ✓
+- Round 9 me-south-1 sweep (184 files): all covered by plan's 12 categories — no new uncovered references found ✓
+- Round 9 domain mapping verification: all 7 files confirmed at exact line numbers with correct patterns ✓
+- Excluded services (xp-badges, bandsintown, marketing-feeds) correctly have the domain pattern but are out of scope ✓
 
 ### Architecture
 - Greenfield infrastructure approach (new Terraform state) avoids state conflicts ✓
@@ -319,6 +382,10 @@ All items below were identified across 5 review rounds and are now fully address
 - Route53 is global — CDK `HostedZone.FromLookup` finds zones by domain name ✓
 - Private hosted zones are VPC-associated — same domain in new VPC = new zone ✓
 - InternalCertificateStack case difference (`Internal.` vs `internal.`) is harmless — DNS is case-insensitive (Round 6) ✓
+- Round 9 CDK stack verification: all 11 infrastructure stacks and 23 service CDK entries confirmed, no undocumented stacks ✓
+- GeideaDataExporterStack (automations) confirmed commented out — plan's Appendix A already notes this ✓
+- CONNECTION_STRINGS parsing confirmed standardized: all services use `JsonSerializer.Deserialize<Dictionary<string, string>>()` via DbAutoConfigureHelper — regex `Host=[^;]+` replacement is safe ✓
+- Inter-service calls use SSM InternalServices params loaded at cold start via `ParameterStoreHelper.LoadParametersToEnvironmentAsync` — overrides env-var base routes for services that call it ✓
 
 ### Lambda & Runtime
 - No Lambda layers used ✓
@@ -337,6 +404,9 @@ All items below were identified across 5 review rounds and are now fully address
 - Extension deployer CDK_DEFAULT_REGION secret usage confirmed (Round 6) ✓
 - Mobile scanner release-build.yml 3 hardcoded references confirmed (Round 6) ✓
 - 36 repos with AWS workflows identified; plan's 35-repo list is accurate (Round 6) ✓
+- Round 9 CI/CD audit: 35 repos confirmed needing AWS_DEFAULT_REGION secret update; CDK templates (deploy-cdk.yml, build.yml, tests.yml) all use secret variables correctly ✓
+- EKS workflows (deploy.yml, k8s.yml) confirmed dead code with hardcoded me-south-1 — plan correctly marks for removal ✓
+- Special secrets (AWS_DEFAULT_REGION_PROD, TP_AWS_DEFAULT_REGION_PROD, CDK_DEFAULT_REGION) confirmed in correct repos ✓
 
 ### Terraform
 - AWS provider version 4.67.0 is region-agnostic ✓
@@ -350,6 +420,10 @@ All items below were identified across 5 review rounds and are now fully address
 - prod/group.tf techlead-redis (line 33) and developer-opensearch (line 81) confirmed (Round 7) ✓
 - DB subnet group name confirmed as `"postgres"` at rds.tf:160 (Round 7) ✓
 - Prod instance count = 3 confirmed at rds.tf:223 (Round 7) ✓
+- Round 9 Terraform EKS deprecation: all 6 files to delete confirmed present with expected resources ✓
+- Round 9 Terraform modifications: all cross-references (rds.tf ingress rules, group.tf IAM attachments, secretmanager.tf outputs) confirmed at exact line numbers ✓
+- `iam-s3-sqs.tf` `s3-sqs-eks` policy confirmed EKS-only (comment says "iam for eks serviceaccount"), no other references — safe to delete ✓
+- `user-cicd.tf` EKS policy attachment confirmed isolated — safe to delete ✓
 
 ### SSM Parameters & Secrets
 - Secret path pattern `/{env}/{service}` confirmed via SecretManagerHelper code (Round 6) ✓
@@ -370,6 +444,8 @@ All items below were identified across 5 review rounds and are now fully address
 - `ticketing-prod-media` confirmed 0 backup recovery points in eu-central-1 — acceptable, recreated empty (Round 8) ✓
 - S3 backup vault confirmed: `backup-vault-prod` in eu-central-1 (Round 8) ✓
 - S3 backup dates confirmed: latest 2026-03-23 19:40 UTC+8 for both restorable buckets (Round 8) ✓
+- Round 9 S3 bucket naming: all hardcoded bucket references verified covered by plan's env-var updates, Terraform definitions, and vercel.json CSP ✓
+- Round 9 LambdaS3ExtendedMessagePolicyStatement wildcard pattern confirmed — plan's update from `ticketing-*-extended-message` to `ticketing-*-extended-message-eu` is correct ✓
 
 ### AWS Infrastructure (Live Verification — Round 8)
 - RDS cluster `ticketing`: aurora-postgresql 15.12, 3x `db.serverless` instances, scaling 1.5-64 ACU, subnet group `postgres`, KMS encrypted ✓
@@ -384,6 +460,14 @@ All items below were identified across 5 review rounds and are now fully address
 - KMS: 1 custom alias `alias/rds` ✓
 - IAM: `cicd` user confirmed ✓
 - eu-central-1 is clean: 0 Lambda functions, 0 SQS queues, no CDK bootstrap ✓
+
+### SSM Parameters & Secrets (Round 9 Reconfirmation)
+- All 16 service secret paths verified via `SecretManagerHelper.LoadSecretsToEnvironmentAsync` — 100% match with plan ✓
+- CSV generator SSM path `/{env}/tp/csv/generator/*` confirmed in Function.cs:102 ✓
+- PDF generator SSM path `/{env}/tp/pdf/generator/*` confirmed in Function.cs:102 ✓
+- All 16 manual SSM parameters in plan's Phase 2.5 confirmed required by CDK code reads ✓
+- Secret names match code exactly (e.g., `/prod/customers` not `/prod/customer-service`) ✓
+- Only extension services read SQS queue URLs from env vars (`EXTENSION_DEPLOYER_SQS_QUEUE_URL`, `EXTENSION_EXECUTOR_SQS_QUEUE_URL`) — other services use EventBridge ✓
 
 ### Third-Party Integrations
 - Auth0, Checkout.com, SendGrid, Sentry, Seats.io — all SaaS, region-agnostic ✓
@@ -437,6 +521,7 @@ Verified prod account `660748123249` via AWS CLI. Corrections applied:
 | ~~Phase 4 CNAME gap causes inter-service failures~~ | ~~MEDIUM~~ | ~~HIGH~~ | Parallel ServerlessBackendStack deploys added — ISSUE-35 | RESOLVED |
 | ~~RDS Proxy incompatibility (untested)~~ | ~~MEDIUM~~ | ~~HIGH~~ | Using direct Aurora endpoints; RDS Proxy on standby — ISSUE-36 | RESOLVED |
 | ~~Restore metadata ignores security group~~ | ~~MEDIUM~~ | ~~HIGH~~ | Post-restore SG verification step added — ISSUE-37 | RESOLVED |
+| Phase 3 inter-service calls fail for 4 services | HIGH | MEDIUM | loyalty/automations/ecwid/geidea don't load SSM InternalServices; accept as Phase 3 limitation — ISSUE-39 | OPEN |
 | NS delegation at parent domain | MEDIUM | HIGH | Update parent zone NS records after Terraform creates new zones | OPEN |
 | S3 bucket names in env-var JSON | MEDIUM | MEDIUM | Manual update needed for `-eu` suffix in ~7 env-var files | OPEN |
 | AWS Backup restore fails or data stale | LOW | CRITICAL | Verify backup recency; test on dev first | OPEN |
@@ -569,13 +654,14 @@ Complete matrix for Phase 3.4 and Phase 5.4. **All 23 services.**
 |---|---|---|
 | `/{env}/tp/csv/generator/*` | CSV generator Lambda (`Function.ReadSsmParametersAndAddToEnvVars`) | All params under path loaded as env vars |
 | `/{env}/tp/pdf/generator/*` | PDF generator Lambda (`Function.ReadSsmParametersAndAddToEnvVars`) | Includes STORAGE_BUCKET_NAME (also CDK blocking) |
-| `/{env}/tp/InternalServices/*` | All service Lambdas (`ParameterStoreHelper.LoadParametersToEnvironmentAsync`) | Used for inter-service HTTP calls |
+| `/{env}/tp/InternalServices/*` | Most service Lambdas (`ParameterStoreHelper.LoadParametersToEnvironmentAsync`) | Used for inter-service HTTP calls. **EXCEPTION:** loyalty, automations, ecwid do NOT call this — rely on env-var base routes (ISSUE-39) |
 
 ---
 
-*Review completed: 2026-03-25 (Round 8)*
+*Review completed: 2026-03-25 (Round 9)*
 *Validated against: 30+ service repositories, Terraform configs, CDK stacks, CI/CD workflows, ConfigMaps*
 *Round 5: 6 parallel agents — missing services CDK audit, Terraform cross-references, uncovered me-south-1 references, SSM parameters, GitHub secrets, S3 buckets*
 *Round 5+: 3 parallel agents — comprehensive SSM audit, S3 bucket naming propagation, Route53 DNS rerouting analysis*
 *Round 6: 8 parallel agents — env-var JSON coverage (53 files verified), aws-lambda-tools-defaults count (42 confirmed), uncovered me-south-1 sweep (all source code covered), CDK stack verification (11 infra + 23 service stacks match), Terraform EKS deprecation scope (all files confirmed), secrets/SSM parameter tracing (paths verified via code), CI/CD workflow audit (36 repos, all secrets correct), S3 bucket reference audit (17 buckets, all covered)*
 *Round 7: 8 parallel agents — CDK domain mapping verification (6/7 correct, ecwid missing), Terraform EKS cross-references (all files confirmed with line numbers), me-south-1 full sweep (958 refs, all covered by 12 categories), CDK Program.cs stack verification (24 services + infrastructure all match), S3 bucket + secrets path verification (17 buckets, all secret paths confirmed), connection strings + SQS queue naming analysis (3 critical issues found), CI/CD workflow audit (36 repos + ecwid confirmed), DNS cutover logic analysis (CNAME transition gap identified), Aurora restore procedure verification (identifier mismatch and metadata concerns found)*
+*Round 9: 7 parallel agents — CDK domain mapping re-verification (all 7 files confirmed, excluded services correctly out of scope), Terraform EKS deprecation (all files verified with cross-references, iam-s3-sqs.tf confirmed safe to delete), me-south-1 sweep (184 files, all covered by 12 categories), CDK stack names (11 infra + 23 service stacks confirmed), secrets/SSM tracing (16 secret paths verified, 16 manual SSM params confirmed), S3 bucket naming (all references covered), CI/CD workflows (35 repos + 3 special secrets confirmed), connection strings (standardized parsing confirmed, regex safe) + SQS (only extension services read queue URLs). New finding: Phase 3 inter-service call failure for loyalty/automations/ecwid/geidea (ISSUE-39)*

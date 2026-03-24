@@ -16,7 +16,7 @@
 
 ## Correction: Actual Backup Failures
 
-The migration plan lists 13 secrets as FAILED. **Only 8 truly failed.** Five listed as "FAILED" actually have complete data in the backup files:
+The migration plan lists 13 secrets as FAILED. **Only 6 truly failed.** Seven listed as "FAILED" actually have complete data in the backup files:
 
 | Secret | Plan Says | Actual Status |
 |--------|-----------|---------------|
@@ -28,13 +28,13 @@ The migration plan lists 13 secrets as FAILED. **Only 8 truly failed.** Five lis
 | `/{env}/ecwid` | FAILED | **CONFIRMED FAILED** |
 | `/{env}/geidea` | FAILED | **HAS DATA** — 4 keys backed up |
 | `/{env}/media` | FAILED | **HAS DATA** — 15 keys backed up |
-| `/{env}/organizations` | FAILED | **HAS DATA** — 13 keys backed up |
-| `/{env}/reporting` | FAILED | **CONFIRMED FAILED** |
-| `/{env}/transfer` | FAILED | **CONFIRMED FAILED** |
+| `/{env}/organizations` | FAILED | **HAS DATA** — 14 keys backed up |
+| `/{env}/reporting` | FAILED | **HAS DATA** — 8 keys backed up |
+| `/{env}/transfer` | FAILED | **HAS DATA** — 9 keys backed up (includes `SHARED_CODE_SECRET_KEY`) |
 | `devops` | FAILED | **HAS DATA** — 1 key (`devops`: SSH public key) |
 | `terraform` | FAILED | **CONFIRMED FAILED** |
 
-**Impact:** 5 fewer secrets to reconstruct from scratch. Automations, geidea, media, and organizations can be restored from backup files.
+**Impact:** 7 fewer secrets to reconstruct from scratch (was 13, now only 6). Automations, geidea, media, organizations, reporting, transfer, and devops can be restored from backup files. Critically, `SHARED_CODE_SECRET_KEY` for transfer is preserved.
 
 ---
 
@@ -133,8 +133,8 @@ These keys are consumed by `TP.Tools.*` libraries and are therefore common acros
 | Key | Type | Source for Reconstruction | Critical |
 |-----|------|---------------------------|----------|
 | `CONNECTION_STRINGS` | JSON string | Generate from new RDS Proxy endpoints (see format above). Database name: `access_control` | YES |
-| `ENCRYPTION_KEY` | AES-256 key | **Must recover from password manager or team**. Used for PII encryption in DB — data is unreadable without the original key | CRITICAL |
-| `ENCRYPTION_IV` | Base64 IV | Same as above — must be the ORIGINAL value, not a new one | CRITICAL |
+| `ENCRYPTION_KEY` | AES-256 key | **Generate new for production.** Old values are lost. Any previously-encrypted PII in the DB will be unreadable, but this is accepted. Generate with: `openssl rand -base64 32` | YES |
+| `ENCRYPTION_IV` | Base64 IV | **Generate new for production.** Pair with the new key. Generate with: `openssl rand -base64 16` | YES |
 
 **Note:** The agent research suggested `OrganizationServiceBaseRoute` and `MediaServiceBaseRoute` come from the secret, but these are actually loaded from SSM Parameter Store via `ParameterStoreHelper`, not from the secret.
 
@@ -165,30 +165,29 @@ These keys are consumed by `TP.Tools.*` libraries and are therefore common acros
 
 **Note:** This service reads `CatalogueServiceBaseRoute`, `SalesServiceBaseRoute`, `MediaServiceBaseRoute` from SSM Parameter Store (not from the secret). No service-specific secret keys beyond CONNECTION_STRINGS found in code.
 
-#### 5. `/{env}/reporting`
+#### 5. `/{env}/ecwid`
+
+Ecwid-integration loads this secret via custom `GetSecretValueAsync("/{env}/ecwid")` calls in each Lambda's `Startup.cs` (PaymentCallback, PaymentCreate, WebHooks.Ecwid, WebHooks.Anchanto) and `ServiceProviderBuilder.ReadSecrets()` for BackgroundJobs. It does NOT use the shared `SecretManagerHelper`.
 
 | Key | Type | Source for Reconstruction | Critical |
 |-----|------|---------------------------|----------|
-| `CONNECTION_STRINGS` | JSON string | Database name: `reporting`. Needs PgSql, ReadonlyPgSql, AND ReportingPgSql | YES |
+| `ECWID_API_SECRET` | String | Ecwid dashboard → API keys | YES |
+| `ECWID_WEBHOOK_SECRET` | String | Ecwid dashboard → Webhooks | YES |
+| `ECWID_STORE_ID` | String | Ecwid dashboard | YES |
+| `ECWID_BASE_ADDRESS` | URL | Ecwid API base URL (e.g., `https://app.ecwid.com/api/v3`) | YES |
+| `ANCHANTO_API_SECRET` | String | Anchanto dashboard | YES |
+| `ANCHANTO_STORE_ID` | String | Anchanto dashboard | YES |
+| `ANCHANTO_MARKETPLACE_CODE` | String | Anchanto dashboard | YES |
+| `ANCHANTO_BASE_ADDRESS` | URL | Anchanto API base URL | YES |
+| `ANCHANTO_BASE_CATEGORY_CODE` | String | Anchanto config | YES |
+| `ANCHANTO_BASE_CATEGORY_NAME` | String | Anchanto config | YES |
+| `ANCHANTO_INVENTORY_WEBHOOK_SECRET` | String | Anchanto webhook config | YES |
+| `ANCHANTO_ORDER_WEBHOOK_SECRET` | String | Anchanto webhook config | YES |
+| `CONNECTION_STRINGS` | JSON string | Database name: `ecwid` | YES |
 
-**Note:** Minimal secret — only database connections. All other config comes from CDK env vars or SSM.
+**Note:** All ecwid-specific keys are third-party credentials from Ecwid and Anchanto dashboards or password manager.
 
-#### 6. `/{env}/transfer`
-
-| Key | Type | Source for Reconstruction | Critical |
-|-----|------|---------------------------|----------|
-| `CONNECTION_STRINGS` | JSON string | Database name: `transfer` | YES |
-| `SHARED_CODE_SECRET_KEY` | HMAC key | **Must recover from password manager or team**. Used for transfer share code generation — existing share codes won't validate without the original key | CRITICAL |
-
-#### 7. `/{env}/ecwid`
-
-**This secret has NO code references.** No service loads `/{env}/ecwid` via `SecretManagerHelper`. The only "ecwid" references in the codebase are:
-- A log message in `ticketing-platform-geidea/src/TP.Geidea.Lambda.Balance/Function.cs:82` (historical naming)
-- An entry in `ticketing-platform-tools/ToolsNugetUpgrader/appsettings.json` repo list (repo: `ecwid-integration`)
-
-**Recommendation:** This appears to be a legacy/deprecated secret. Do NOT recreate unless a specific need is identified. The `ecwid-integration` repo doesn't exist in the monorepo.
-
-#### 8. `terraform`
+#### 6. `terraform`
 
 Terraform reads this secret via `secretmanager.tf` → `local.terraform = jsondecode(...)` and accesses `local.terraform.rds` for `master_password` in `rds.tf`.
 
@@ -285,7 +284,36 @@ These secrets were listed as FAILED in the plan but **actually have backup data*
 | `AWS_ACCESS_SECRET` | **YES** | Update to new IAM user credentials |
 | `LUMIGO_TRACER_TOKEN` | No | Copy as-is |
 
-#### 13. `devops` — BACKUP EXISTS
+#### 13. `/{env}/reporting` — BACKUP EXISTS
+
+**Backed-up keys (8):**
+| Key | Region-Dependent | Action |
+|-----|-----------------|--------|
+| `CONNECTION_STRINGS` | **YES** | Update RDS host |
+| `Logging__Elasticsearch__Uri` | — | **DELETE** (dead) |
+| `Logging__Elasticsearch__Username` | — | **DELETE** (dead) |
+| `Logging__Elasticsearch__Password` | — | **DELETE** (dead) |
+| `AWS_ACCESS_KEY` | **YES** | Update to new IAM user credentials |
+| `AWS_ACCESS_SECRET` | **YES** | Update to new IAM user credentials |
+| `SQS_QUEUE_URL` | **YES** | Update region in URL (harmless — not read by code) |
+| `LUMIGO_TRACER_TOKEN` | No | Copy as-is |
+
+#### 14. `/{env}/transfer` — BACKUP EXISTS
+
+**Backed-up keys (9):**
+| Key | Region-Dependent | Action |
+|-----|-----------------|--------|
+| `CONNECTION_STRINGS` | **YES** | Update RDS host |
+| `Logging__Elasticsearch__Uri` | — | **DELETE** (dead) |
+| `Logging__Elasticsearch__Username` | — | **DELETE** (dead) |
+| `Logging__Elasticsearch__Password` | — | **DELETE** (dead) |
+| `AWS_ACCESS_KEY` | **YES** | Update to new IAM user credentials |
+| `AWS_ACCESS_SECRET` | **YES** | Update to new IAM user credentials |
+| `SQS_QUEUE_URL` | **YES** | Update region in URL (harmless — not read by code) |
+| `SHARED_CODE_SECRET_KEY` | No | **Copy as-is — CRITICAL** (HMAC key for transfer share codes) |
+| `LUMIGO_TRACER_TOKEN` | No | Copy as-is |
+
+#### 15. `devops` — BACKUP EXISTS
 
 **Backed-up keys (1):**
 | Key | Value Type | Action |
@@ -371,9 +399,9 @@ Remove from ALL secrets during reconstruction:
 
 ## Critical Reconstruction Warnings
 
-1. **`ENCRYPTION_KEY` and `ENCRYPTION_IV` are IRREPLACEABLE.** These AES keys encrypt PII in the database. If the original values are lost, encrypted data in access-control (and any other service using them via the shared TP.Tools pattern) becomes permanently unreadable. These MUST be recovered from a password manager, team memory, or alternative backup — generating new values will NOT work.
+1. **`ENCRYPTION_KEY` and `ENCRYPTION_IV` — generate new values.** The original values are lost (access-control backup failed). Any previously-encrypted PII in the access-control database will be unreadable. This is accepted — generate fresh AES-256 keys for the new environment. Generate with: `openssl rand -base64 32` (key) and `openssl rand -base64 16` (IV).
 
-2. **`SHARED_CODE_SECRET_KEY` (transfer service) is IRREPLACEABLE.** Used for HMAC-based transfer share codes. Existing share codes in the database won't validate with a different key.
+2. **`SHARED_CODE_SECRET_KEY` (transfer service) is PRESERVED.** The transfer backup succeeded — this HMAC key is in `__prod__transfer.json`. Copy it exactly to the new secret.
 
 3. **`CONNECTION_STRINGS` can be regenerated** — they only contain the RDS Proxy endpoint, database name, and credentials. All of these are known after Aurora restore.
 
