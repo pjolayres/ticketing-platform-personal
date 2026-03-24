@@ -1,6 +1,7 @@
 # AWS Region Migration Plan: me-south-1 to eu-central-1
 
 - [Context](#context)
+- [Decisions](#decisions)
 - [Complete "me-south-1" Reference Inventory](#complete-me-south-1-reference-inventory)
   - [Category 1: Terraform Files](#category-1-terraform-files)
   - [Category 2: CDK env-var JSON Files (~40 files)](#category-2-cdk-env-var-json-files-40-files)
@@ -12,51 +13,64 @@
   - [Category 8: Dashboard CSP (1 file)](#category-8-dashboard-csp-1-file)
   - [Category 9: CDK Context Cache Files (DELETE)](#category-9-cdk-context-cache-files-delete)
   - [Category 10: Local Development Settings (lowest priority)](#category-10-local-development-settings-lowest-priority)
+  - [Category 11: CI/CD Shared Templates (ticketing-platform-templates-ci-cd)](#category-11-cicd-shared-templates-ticketing-platform-templates-ci-cd)
+  - [Category 12: Dashboard .env Files](#category-12-dashboard-env-files)
+- [EKS/Kubernetes Deprecation Inventory](#ekskubernetes-deprecation-inventory)
+  - [Terraform — Files to Remove (terraform-prod)](#terraform--files-to-remove-terraform-prod)
+  - [Terraform — Already Done (terraform-dev)](#terraform--already-done-terraform-dev)
+  - [EKS Artifacts Across Monorepo (Archive/Remove)](#eks-artifacts-across-monorepo-archiveremove)
+- [Redis/ElastiCache \& OpenSearch Removal Inventory](#rediselasticache--opensearch-removal-inventory)
+  - [Redis/ElastiCache](#rediselasticache)
+  - [OpenSearch/Elasticsearch](#opensearchelasticsearch)
 - [S3 Bucket Naming Strategy](#s3-bucket-naming-strategy)
 - [Phase 1: Code Preparation (No Infrastructure Changes)](#phase-1-code-preparation-no-infrastructure-changes)
   - [Tasks](#tasks)
-- [Phase 2: Dev+Sandbox Foundation](#phase-2-devsandbox-foundation)
-  - [2.1 Create Terraform State Bucket](#21-create-terraform-state-bucket)
-  - [2.2 Replicate Secrets Manager](#22-replicate-secrets-manager)
-  - [2.3 Terraform Apply](#23-terraform-apply)
-  - [2.4 Populate Manual SSM Parameters](#24-populate-manual-ssm-parameters)
-  - [2.5 Aurora Global Database](#25-aurora-global-database)
-  - [2.6 S3 Cross-Region Replication](#26-s3-cross-region-replication)
-  - [2.7 DynamoDB Tables](#27-dynamodb-tables)
+- [Phase 2: Dev+Sandbox Foundation \& Data Restore](#phase-2-devsandbox-foundation--data-restore)
+  - [2.1 Service Quota Pre-Checks](#21-service-quota-pre-checks)
+  - [2.2 Create Terraform State Bucket](#22-create-terraform-state-bucket)
+  - [2.3 Recreate Secrets Manager Entries](#23-recreate-secrets-manager-entries)
+  - [2.4 Terraform Apply](#24-terraform-apply)
+  - [2.5 Populate Manual SSM Parameters](#25-populate-manual-ssm-parameters)
+  - [2.6 Restore Aurora from AWS Backup](#26-restore-aurora-from-aws-backup)
+  - [2.7 Restore S3 Data from AWS Backup](#27-restore-s3-data-from-aws-backup)
+  - [2.8 CDK Bootstrap](#28-cdk-bootstrap)
   - [Phase 2 Verification Checklist](#phase-2-verification-checklist)
-- [Phase 3: Dev+Sandbox Services](#phase-3-devsandbox-services)
-  - [3.1 Infrastructure CDK (11 Stacks — Strict Order)](#31-infrastructure-cdk-11-stacks--strict-order)
-  - [3.2 Update Connection Strings](#32-update-connection-strings)
-  - [3.3 Per-Service CDK (20 Services)](#33-per-service-cdk-20-services)
-  - [3.4 Event Flow Validation](#34-event-flow-validation)
+- [Phase 3: Dev+Sandbox Services \& Validation](#phase-3-devsandbox-services--validation)
+  - [3.1 Create ACM Certificates](#31-create-acm-certificates)
+  - [3.2 Infrastructure CDK (11 Stacks — Strict Order)](#32-infrastructure-cdk-11-stacks--strict-order)
+  - [3.3 Update Connection Strings](#33-update-connection-strings)
+  - [3.4 Per-Service CDK Deployment Matrix](#34-per-service-cdk-deployment-matrix)
+  - [3.5 Update GitHub Secrets \& Variables](#35-update-github-secrets--variables)
+  - [3.6 Merge Feature Branches \& Deploy Frontends](#36-merge-feature-branches--deploy-frontends)
+  - [3.7 End-to-End Validation](#37-end-to-end-validation)
   - [Phase 3 Verification Checklist](#phase-3-verification-checklist)
-- [Phase 4: Dev+Sandbox Cutover (Maintenance Window)](#phase-4-devsandbox-cutover-maintenance-window)
-  - [4.1 Pre-Cutover Checks](#41-pre-cutover-checks)
-  - [4.2 Stop me-south-1 Traffic](#42-stop-me-south-1-traffic)
-  - [4.3 Aurora Switchover](#43-aurora-switchover)
-  - [4.4 DNS Cutover](#44-dns-cutover)
-  - [4.5 Update GitHub Secrets](#45-update-github-secrets)
-  - [4.6 Merge Feature Branches \& Deploy Frontends](#46-merge-feature-branches--deploy-frontends)
-  - [4.7 End-to-End Validation](#47-end-to-end-validation)
-  - [4.8 Rollback Procedure](#48-rollback-procedure)
-  - [4.9 Post-Cutover](#49-post-cutover)
-- [Phase 5: Production Foundation](#phase-5-production-foundation)
-  - [5.1 State Bucket](#51-state-bucket)
-  - [5.2 Complete Security Remediation](#52-complete-security-remediation)
-  - [5.3 Replicate Prod Secrets](#53-replicate-prod-secrets)
-  - [5.4 Terraform Apply (Prod)](#54-terraform-apply-prod)
-  - [5.5 Aurora Global Database (Prod)](#55-aurora-global-database-prod)
-  - [5.6 S3 CRR (Prod Buckets)](#56-s3-crr-prod-buckets)
-  - [5.7 Populate Prod SSM Parameters](#57-populate-prod-ssm-parameters)
-  - [5.8 Deploy All CDK Stacks (Prod)](#58-deploy-all-cdk-stacks-prod)
-  - [5.9 Pre-Cutover Validation](#59-pre-cutover-validation)
-- [Phase 6: Production Cutover (Scheduled Maintenance Window)](#phase-6-production-cutover-scheduled-maintenance-window)
-  - [Additional Prod Safety](#additional-prod-safety)
-  - [Cutover Steps](#cutover-steps)
-  - [Post-Cutover Monitoring (72 hours)](#post-cutover-monitoring-72-hours)
-- [Post-Migration Cleanup (After 7-Day Stability Window)](#post-migration-cleanup-after-7-day-stability-window)
-  - [Data Stores](#data-stores)
-  - [Infrastructure](#infrastructure)
+- [Phase 4: Production Foundation \& Data Restore](#phase-4-production-foundation--data-restore)
+  - [4.1 Service Quota Pre-Checks (Prod)](#41-service-quota-pre-checks-prod)
+  - [4.2 State Bucket (Prod)](#42-state-bucket-prod)
+  - [4.3 Security Remediation](#43-security-remediation)
+  - [4.4 Recreate Prod Secrets](#44-recreate-prod-secrets)
+  - [4.5 Terraform Apply (Prod)](#45-terraform-apply-prod)
+  - [4.6 Populate Prod SSM Parameters](#46-populate-prod-ssm-parameters)
+  - [4.7 Restore Aurora from AWS Backup (Prod)](#47-restore-aurora-from-aws-backup-prod)
+  - [4.8 Restore S3 Data (Prod)](#48-restore-s3-data-prod)
+  - [4.9 CDK Bootstrap (Prod)](#49-cdk-bootstrap-prod)
+- [Phase 5: Production Services \& Go-Live](#phase-5-production-services--go-live)
+  - [5.1 Create ACM Certificates (Prod)](#51-create-acm-certificates-prod)
+  - [5.2 Deploy All CDK Stacks (Prod)](#52-deploy-all-cdk-stacks-prod)
+  - [5.3 Update Connection Strings (Prod)](#53-update-connection-strings-prod)
+  - [5.4 Per-Service CDK (Prod)](#54-per-service-cdk-prod)
+  - [5.5 Update GitHub Secrets (Prod)](#55-update-github-secrets-prod)
+  - [5.6 Merge to Production \& Deploy Frontends](#56-merge-to-production--deploy-frontends)
+  - [5.7 End-to-End Validation (Prod)](#57-end-to-end-validation-prod)
+  - [5.8 Post-Go-Live Monitoring (72 hours)](#58-post-go-live-monitoring-72-hours)
+- [Post-Migration Tasks](#post-migration-tasks)
+  - [Extension Lambda Redeployment](#extension-lambda-redeployment)
+- [Post-Migration Cleanup](#post-migration-cleanup)
+  - [Data Stores (after 7-day stability)](#data-stores-after-7-day-stability)
+  - [Infrastructure (once me-south-1 recovers)](#infrastructure-once-me-south-1-recovers)
+  - [EKS Deprecation Cleanup](#eks-deprecation-cleanup)
+  - [Redis/OpenSearch Cleanup](#redisopensearch-cleanup)
+  - [Runner Cleanup](#runner-cleanup)
   - [Configuration](#configuration)
   - [Security](#security)
   - [Documentation](#documentation)
@@ -65,13 +79,33 @@
 
 ## Context
 
-The MDLBEAST Ticketing Platform must migrate from AWS me-south-1 (Bahrain) to eu-central-1 (Frankfurt) due to infrastructure instability caused by regional military conflicts. This is a full cutover of a 30+ service serverless microservices platform across two AWS accounts (dev/sandbox: `307824719505`, production: `660748123249`).
+The MDLBEAST Ticketing Platform must migrate from AWS me-south-1 (Bahrain) to eu-central-1 (Frankfurt). **The me-south-1 region is currently completely down** due to regional data center failure. This changes the migration from a planned cutover to a **disaster recovery + region migration**.
+
+**Key implications of me-south-1 being down:**
+- Aurora Global Database, S3 Cross-Region Replication, and Secrets Manager replication are **impossible** (source region unavailable)
+- All data must be restored from **AWS Backup cross-region copies** already stored in eu-central-1
+- There is no live traffic to "cut over" — the platform is currently offline
+- There is no rollback to me-south-1 — eu-central-1 is the only path forward
+- Secrets must be **recreated manually** from backup or documentation
 
 **Supporting research:** `.planning/research/ARCHITECTURE.md`, `PITFALLS.md`, `STACK.md`
 
-**Migration order:** Dev+Sandbox (same account) first → validate → Production (separate account)
+**Migration order:** Dev+Sandbox (account `307824719505`) first → validate → Production (account `660748123249`)
 
-**Migration strategy:** Greenfield infrastructure in eu-central-1 (new Terraform state, new CDK stacks), with Aurora Global Database for zero-data-loss database cutover and S3 CRR for object replication.
+**Migration strategy:** Greenfield infrastructure in eu-central-1 (new Terraform state, new CDK stacks), with Aurora restored from AWS Backup cross-region copies. Lambda-only deployment (EKS deprecated).
+
+---
+
+## Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| EKS/Kubernetes | **Deprecate — Lambda-only** | Services already run as Lambda functions. EKS adds operational complexity with no unique value. |
+| Self-hosted runners | **Remove — use GitHub-hosted runners** | Runners only existed for kubectl/EKS deployments. Lambda CDK deploys use `ubuntu-latest`. |
+| Redis/ElastiCache | **Remove — do not recreate** | Confirmed zombie infrastructure: zero connections, code uses DynamoDB + in-memory caching instead. |
+| OpenSearch/Elasticsearch | **Remove — do not recreate** | Confirmed ghost config: Serilog has no Elasticsearch sink installed. Config references exist but no data flows. |
+| Data migration strategy | **Restore from AWS Backup** | me-south-1 is down; live replication impossible. Cross-region backup copies exist in eu-central-1. |
+| `demo` environment | **Defer** | Not critical path. Address after dev/sandbox/prod are live. |
 
 ---
 
@@ -93,7 +127,6 @@ The MDLBEAST Ticketing Platform must migrate from AWS me-south-1 (Bahrain) to eu
 | `ticketing-platform-terraform-prod/prod/variables.tf:65` | AMI ID → eu-central-1 equivalent |
 | `ticketing-platform-terraform-prod/prod/rds.tf:200` | `availability_zones` → `["eu-central-1a","eu-central-1b","eu-central-1c"]` |
 | `ticketing-platform-terraform-prod/prod/secretmanager.tf:4` | Hardcoded ARN → name-based lookup |
-| `ticketing-platform-terraform-prod/prod/waf.tf:8,73` | ALB ARN + IP set ARN with `me-south-1` → new eu-central-1 ARNs |
 
 **Security remediation (prod only):**
 
@@ -103,14 +136,11 @@ The MDLBEAST Ticketing Platform must migrate from AWS me-south-1 (Bahrain) to eu
 | `ticketing-platform-terraform-prod/prod/variables.tf:117` | `rds_pass` | Plaintext → Secrets Manager |
 | `ticketing-platform-terraform-prod/prod/variables.tf:125` | `rds_pass_inventory` | Plaintext → Secrets Manager |
 
-**EKS remnants to clean up:**
+**S3 lifecycle bug (dev):**
 
-| File | Action |
-|------|--------|
-| `terraform-dev/dev/iam-eks.tf` | Remove or rename IAM policies |
-| `terraform-prod/prod/eks-subnet.tf` | Remove |
-| `terraform-prod/prod/msk.tf` | Remove (marked `/// probably delete`) |
-| `terraform-dev/dev/lambda-subnet.tf` | Rename `eks-*` tags to `lambda-*` |
+| File | Issue |
+|------|-------|
+| `ticketing-platform-terraform-dev/dev/s3.tf:246` | Lifecycle config references sandbox bucket instead of dev bucket — fix during Phase 1 |
 
 ### Category 2: CDK env-var JSON Files (~40 files)
 
@@ -191,6 +221,8 @@ done
 - `ticketing-platform-inventory/src/Tests/TP.Inventory.IntegrationTests/ApplicationFactory.cs:58-59`
 - `ticketing-platform-pricing/src/Tests/TP.Pricing.IntegrationTests/ApplicationFactory.cs:116-117`
 - `ticketing-platform-infrastructure/TP.Infrastructure.Tests/SlackNotifier/` (multiple test files)
+- `ticketing-platform-tools/UnitTests/Infrastructure/Consumers/LambdaUtilitiesTests.cs:252`
+- `ticketing-platform-integration/src/TP.Integration.IntegrationTests/.../WhatsAppServiceTests.cs:139`
 
 ### Category 6: ConfigMap YAML Files
 
@@ -205,6 +237,8 @@ done
 **Prod:**
 - `ticketing-platform-configmap-prod/manifests-new/{integration,media,reporting,sales,transfer}.yml` — `STORAGE_REGION`
 - `ticketing-platform-configmap-prod/manifests-new/sales.yml` — also has `Logging__Elasticsearch__Uri` with me-south-1 OpenSearch endpoint
+
+**Note:** With EKS deprecated, these ConfigMap repos become archival. Update the region references for correctness, but these manifests will no longer be deployed.
 
 ### Category 7: Mobile Scanner CI/CD (1 file, 3 references)
 
@@ -242,6 +276,138 @@ These contain me-south-1 RDS hosts, SQS URLs, OpenSearch URIs — update after n
 - `ticketing-platform-gateway/src/Gateway/Properties/launchSettings.json`
 - `ticketing-platform-sales/src/TP.Sales.API/Properties/launchSettings.json`
 
+**Additional references found in review:**
+- `ticketing-platform-dashboard/.env:9` — `MEDIA_HOST` with me-south-1 API Gateway URL
+- `ticketing-platform-dashboard/.env.sandbox:9` — Same
+- `ticketing-platform-dashboard/.env.development:10,28` — API Gateway URLs
+- `ticketing-platform-distribution-portal/src/TP.DistributionPortal.API/Properties/launchSettings.json:29` — `AWS_REGION: "me-south-1"`
+
+### Category 11: CI/CD Shared Templates (ticketing-platform-templates-ci-cd)
+
+**Audited: 2026-03-24.** The shared template repo referenced by 22+ services as `mdlbeasts/ticketing-platform-templates-ci-cd@master`.
+
+**CDK/Lambda workflows (NO changes needed):**
+- `deploy-cdk.yml` — correctly uses `${{ secrets.AWS_DEFAULT_REGION }}`
+- `build.yml` — correctly uses `${{ secrets.AWS_DEFAULT_REGION }}`
+- `tests.yml` — correctly uses `${{ secrets.AWS_DEFAULT_REGION }}`
+- `cloudwatch-logs-creator.yml` — correctly uses `${{ secrets.AWS_DEFAULT_REGION }}`
+
+**EKS/Helm workflows (8 hardcoded references — dead code after EKS deprecation):**
+
+| File | Line | Content |
+|------|------|---------|
+| `deploy.yml:26` | `aws ecr get-login-password --region me-south-1 \| helm registry login ... 307824719505.dkr.ecr.me-south-1.amazonaws.com` |
+| `deploy.yml:28` | `helm push ... oci://307824719505.dkr.ecr.me-south-1.amazonaws.com/` |
+| `deploy.yml:46` | `aws ecr get-login-password --region me-south-1 \| helm registry login ... 058264295036.dkr.ecr.me-south-1.amazonaws.com` |
+| `deploy.yml:48` | `helm push ... oci://058264295036.dkr.ecr.me-south-1.amazonaws.com/` |
+| `deploy.yml:67` | `aws ecr get-login-password --region me-south-1 \| helm registry login ... 660748123249.dkr.ecr.me-south-1.amazonaws.com` |
+| `deploy.yml:69` | `helm push ... oci://660748123249.dkr.ecr.me-south-1.amazonaws.com/` |
+| `k8s.yml:52` | `aws ecr get-login-password --region me-south-1 \| helm registry login ... ${{ inputs.ACCOUNT }}.dkr.ecr.me-south-1.amazonaws.com` |
+| `k8s.yml:53` | `helm pull oci://${{ inputs.ACCOUNT }}.dkr.ecr.me-south-1.amazonaws.com/helm-chart` |
+
+**Self-hosted runner labels:**
+- `deploy.yml:35` — Branch-dependent labels: `dev`, `demo`, `prod`
+
+**Action:** Update or remove `deploy.yml` and `k8s.yml` as part of EKS deprecation. CDK workflows are safe.
+
+### Category 12: Dashboard .env Files
+
+| File | Reference |
+|------|-----------|
+| `ticketing-platform-dashboard/.env:9` | `MEDIA_HOST=https://o5ewmhbma8.execute-api.me-south-1.amazonaws.com/sandbox/` |
+| `ticketing-platform-dashboard/.env.sandbox:9` | Same pattern |
+| `ticketing-platform-dashboard/.env.development:10` | API Gateway URL (commented) |
+| `ticketing-platform-dashboard/.env.development:28` | `MEDIA_HOST=https://sijnsi3wg5.execute-api.me-south-1.amazonaws.com/prod` |
+
+---
+
+## EKS/Kubernetes Deprecation Inventory
+
+**Decision:** All services will run exclusively on Lambda. EKS is deprecated.
+
+### Terraform — Files to Remove (terraform-prod)
+
+Following the pattern from terraform-dev commit `d01f7df` ("chore: attempt to disable eks"):
+
+| File | Action | Resources |
+|------|--------|-----------|
+| `prod/opensearch.tf` | **DELETE entirely** | 3 subnets (`opensearch-1a/1b/1c-prod`), 1 security group (`opensearchprod`) |
+| `prod/redis.tf` | **DELETE entirely** | 2 subnets (`redis-1a/1b-prod`), 1 security group (`redisprod`) |
+| `prod/waf.tf` | **DELETE entirely** | WAF ACL, IP sets, rules (all reference me-south-1 ALB ARNs) |
+| `prod/msk.tf` | **DELETE entirely** | Marked `/// probably delete` |
+| `prod/runner.tf` | **DELETE entirely** | 2 subnets, 2 EC2 instances (`runner-1a/1b`), 1 security group, 2 route table associations |
+| `prod/eks-subnet.tf` | **RENAME** → `prod/lambda-subnet.tf` | Keep 3 subnets + route table associations; update tags from `eks-subnet-*` to `lambda-subnet-*` |
+| `prod/ecr.tf` | **DELETE entirely** | 2 ECR repos (`ticketing-platform-ecr`, `helm-chart`) — only used for EKS images |
+| `prod/user-cicd.tf` | **Remove EKS policy** | Remove `aws_iam_policy.ci-cd-eks` and attachment; keep CICD user if needed for CDK deploys |
+| `prod/iam-s3-sqs.tf` | **Remove EKS policy** | Remove `aws_iam_policy.s3-sqs-eks` — was for EKS service account S3/SQS access |
+
+**Cross-references to update when removing EKS subnets:**
+
+| File | Change |
+|------|--------|
+| `prod/rds.tf` | Remove security group ingress rules referencing `aws_subnet.eks-1a/1b/1c-prod.cidr_block` |
+| `prod/group.tf` | Remove `techlead-redis` and `developer-opensearch` IAM group policy attachments |
+| `prod/secretmanager.tf` | Remove `output.terraform_opensearch` |
+
+### Terraform — Already Done (terraform-dev)
+
+Dev terraform already removed EKS in commit `d01f7df`. Remaining cleanup:
+- `dev/iam-eks.tf` — remove (orphaned IAM policy)
+- `dev/iam-s3-sqs.tf` — remove `s3-sqs-eks` policy
+- `dev/rds.tf` — remove ingress rules referencing `eks-*` subnet CIDRs
+- `dev/nat.tf` — remove `kubernetes.io/role/elb` tags from subnets
+
+### EKS Artifacts Across Monorepo (Archive/Remove)
+
+| Category | Count | Action |
+|----------|-------|--------|
+| `helm/` directories (17 services) | 17 dirs | Archive — no longer deployed |
+| ConfigMap manifests (dev/sandbox/prod) | 78 files | Archive — no longer deployed |
+| ConfigMap CI/CD workflows (`ci.yml`) | 4 files | Disable or delete |
+| ConfigMap `secretstore.yml` | 2 files | Archive |
+| ConfigMap `sa.yml` (IRSA) | 1 file | Archive |
+| ConfigMap `ingress.yml` (prod) | 1 file | Archive |
+| ConfigMap `disaster.yml` (prod) | 1 file | Archive |
+| Dockerfiles for K8s | 14 files | Keep (may still be useful for local dev) |
+| `.svc.cluster.local` references | 41 files | No action (inside archived ConfigMaps) |
+| `ticketing-platform-templates-ci-cd` `deploy.yml`, `k8s.yml` | 2 files | Remove or disable EKS workflows |
+
+**Services with Helm charts (all deprecated):**
+access-control, automations, catalogue, distribution-portal, extension-api, gateway, geidea, integration, inventory, loyalty, media, organizations, pricing, reporting-api, sales, transfer, templates-ci-cd
+
+---
+
+## Redis/ElastiCache & OpenSearch Removal Inventory
+
+### Redis/ElastiCache
+
+**Status:** Zombie infrastructure. Zero connections confirmed.
+- `StackExchange.Redis` NuGet package imported in `TP.Tools.DataAccessLayer` but **never instantiated**
+- All `Redis__Host` / `Redis__Password` config in all ConfigMaps is **commented out**
+- Platform uses DynamoDB + in-memory caching (`DynamoDbCacheProvider.cs`, `MemoryCacheProvider.cs`)
+
+**Terraform files:**
+- `terraform-dev/dev/redis.tf` — already deleted in commit `d01f7df`
+- `terraform-prod/prod/redis.tf` — delete (2 subnets, 1 security group, no actual cluster)
+
+**ConfigMap references to clean:**
+- Remove commented-out `Redis__Host` / `Redis__Password` from all manifests
+
+### OpenSearch/Elasticsearch
+
+**Status:** Ghost configuration. No Serilog Elasticsearch sink installed.
+- `TP.Tools.Logger.csproj` has `Serilog.AspNetCore` but **no** `Serilog.Sinks.Elasticsearch`
+- Config references exist in 27+ service ConfigMaps but no data flows to OpenSearch
+- **Security concern:** Plaintext credentials in `configmap-prod/manifests-new/sales.yml`
+
+**Terraform files:**
+- `terraform-dev/dev/opensearch.tf` — already deleted in commit `d01f7df`
+- `terraform-prod/prod/opensearch.tf` — delete (3 subnets, 1 security group, no actual domain)
+
+**ConfigMap references to clean:**
+- Remove `Logging__Elasticsearch__*` entries from all manifests
+- Remove plaintext credentials from `configmap-prod/manifests-new/sales.yml`
+
 ---
 
 ## S3 Bucket Naming Strategy
@@ -262,8 +428,14 @@ S3 bucket names are globally unique. Cannot reuse names while old buckets exist.
 | `ticketing-{env}-extended-message` | CDK creates with new name | Large event payloads |
 | `ticketing-terraform-dev` | `ticketing-terraform-dev-eu` | Terraform state |
 | `ticketing-terraform-prod` | `ticketing-terraform-prod-eu` | Terraform state |
+| `ticketing-terraform-github` | `ticketing-terraform-github-eu` | Terraform CI/CD artifact sync |
 
-Update all references: Terraform `s3.tf`/`variables.tf`, CDK env-var files, `vercel.json` CSP, CloudFront origins.
+**Where bucket names must be manually updated (NOT auto-propagated):**
+- Terraform `s3.tf` / `variables.tf` — bucket definitions and IAM policy references
+- CDK `env-var.*.json` files — `STORAGE_BUCKET_NAME`, `MEDIA_STORAGE_BUCKET_NAME` (media, integration, pdf-generator services)
+- Dashboard `vercel.json` CSP — 6 hardcoded S3 URLs (both bucket name AND region)
+- SSM parameter `/{env}/tp/pdf/generator/STORAGE_BUCKET_NAME` — value must match new bucket name
+- CloudFront origins auto-resolve via `bucket_regional_domain_name` (no manual update needed)
 
 ---
 
@@ -275,28 +447,42 @@ Update all references: Terraform `s3.tf`/`variables.tf`, CDK env-var files, `ver
 
 1. **Create feature branches** in each repo: `feature/region-migration-eu-central-1`
 
-2. **Update all hardcoded references** (Categories 1-10 above)
-   - Terraform files (both repos)
-   - CDK env-var JSON files (bulk script)
+2. **Update all hardcoded references** (Categories 1-12 above)
+   - Terraform files (both repos, including EKS/Redis/OpenSearch removal)
+   - CDK env-var JSON files (bulk script for `STORAGE_REGION`; **manual update for bucket names** — see S3 Bucket Naming Strategy)
    - aws-lambda-tools-defaults.json (bulk script)
    - Infrastructure C# code
    - Mobile scanner CI/CD
-   - Dashboard vercel.json
-   - ConfigMap YAMLs
+   - Dashboard `vercel.json` (CSP S3 URLs: update both region AND bucket names) and `.env` files
    - Delete CDK context caches
+   - CI/CD templates repo (`deploy.yml`, `k8s.yml`)
+   - `ticketing-platform-terraform-prod/prod/s3.tf` — rename `ticketing-terraform-github` to `ticketing-terraform-github-eu`
 
-3. **Security remediation** — Move prod plaintext creds to Secrets Manager
+3. **EKS deprecation in terraform-prod** (following terraform-dev pattern from `d01f7df`):
+   - Delete `opensearch.tf`, `redis.tf`, `waf.tf`, `msk.tf`, `runner.tf`, `ecr.tf`
+   - Rename `eks-subnet.tf` → `lambda-subnet.tf`, update tags
+   - Remove EKS IAM policies from `user-cicd.tf`, `iam-s3-sqs.tf`
+   - Remove EKS subnet references from `rds.tf` security group rules
+   - Remove `techlead-redis`, `developer-opensearch` from `group.tf`
+   - Remove `terraform_opensearch` output from `secretmanager.tf`
 
-4. **Terraform cleanup** — Remove/rename EKS remnants
+4. **EKS deprecation cleanup in terraform-dev:**
+   - Remove `iam-eks.tf` (orphaned)
+   - Remove `s3-sqs-eks` policy from `iam-s3-sqs.tf`
+   - Remove EKS subnet CIDR references from `rds.tf`
+   - Remove `kubernetes.io/role/elb` tags from `nat.tf`
 
-5. **Lower DNS TTLs** to 60s, 48+ hours before cutover:
-   ```bash
-   # List current TTLs for each hosted zone
-   aws route53 list-resource-record-sets --hosted-zone-id <zone-id> \
-     --query 'ResourceRecordSets[?TTL > `60`]'
-   ```
+5. **Security remediation:**
+   - Add `.tfstate` and `.tfstate.backup` to `.gitignore` in both Terraform repos
+   - Remove plaintext credentials from `configmap-prod/manifests-new/sales.yml`
+   - Fix S3 lifecycle bug in `terraform-dev/dev/s3.tf:246`
+   - (Prod plaintext creds in `variables.tf` — address in Phase 4.3)
 
-6. **Run all tests** to verify code changes don't break anything:
+6. **Disable ConfigMap CI/CD workflows:**
+   - Remove or disable `ci.yml` in configmap-dev, configmap-sandbox, configmap-prod
+   - Remove or disable `disaster.yml` in configmap-prod
+
+7. **Run all tests** to verify code changes don't break anything:
    ```bash
    # .NET services
    dotnet test
@@ -304,21 +490,37 @@ Update all references: Terraform `s3.tf`/`variables.tf`, CDK env-var files, `ver
    npm run test && npm run typescript
    ```
 
-7. **Verify** zero `me-south-1` references remain:
+8. **Verify** zero `me-south-1` references remain in deployable code:
    ```bash
    grep -r "me-south-1" --include="*.tf" --include="*.cs" --include="*.json" \
-     --include="*.yml" --include="*.yaml" --exclude-dir={.terraform,node_modules,bin,obj,cdk.out,.git}
+     --include="*.yml" --include="*.yaml" \
+     --exclude-dir={.terraform,node_modules,bin,obj,cdk.out,.git,helm} \
+     | grep -v "configmap-" | grep -v "README"
    ```
 
-8. **DO NOT merge yet.** Keep on feature branches until infrastructure is ready.
+9. **DO NOT merge yet.** Keep on feature branches until infrastructure is ready.
 
 ---
 
-## Phase 2: Dev+Sandbox Foundation
+## Phase 2: Dev+Sandbox Foundation & Data Restore
 
-**Duration:** 2-3 days | **Risk:** MEDIUM | **Account:** `307824719505` | **Rollback:** Delete eu-central-1 resources
+**Duration:** 2-3 days | **Risk:** MEDIUM | **Account:** `307824719505`
 
-### 2.1 Create Terraform State Bucket
+### 2.1 Service Quota Pre-Checks
+
+```bash
+# Check eu-central-1 quotas
+aws service-quotas list-service-quotas --service-code lambda --region eu-central-1 \
+  --query 'Quotas[?QuotaName==`Concurrent executions`].Value'
+aws service-quotas list-service-quotas --service-code vpc --region eu-central-1 \
+  --query 'Quotas[?contains(QuotaName,`NAT`)].{Name:QuotaName,Value:Value}'
+aws service-quotas list-service-quotas --service-code rds --region eu-central-1 \
+  --query 'Quotas[?contains(QuotaName,`cluster`)].{Name:QuotaName,Value:Value}'
+
+# Request increases if needed before proceeding
+```
+
+### 2.2 Create Terraform State Bucket
 
 ```bash
 aws s3 mb s3://ticketing-terraform-dev-eu --region eu-central-1
@@ -330,35 +532,39 @@ aws s3api put-bucket-encryption --bucket ticketing-terraform-dev-eu \
   --region eu-central-1
 ```
 
-### 2.2 Replicate Secrets Manager
+### 2.3 Recreate Secrets Manager Entries
+
+Since me-south-1 is down, secrets cannot be replicated. They must be recreated from AWS Backup or documentation.
 
 ```bash
-# Terraform bootstrap secret
-aws secretsmanager replicate-secret-to-regions \
-  --secret-id "terraform" \
-  --add-replica-regions Region=eu-central-1 \
-  --region me-south-1
+# Option A: If AWS Backup includes Secrets Manager
+# List available backup recovery points for Secrets Manager in eu-central-1
+aws backup list-recovery-points-by-resource-type \
+  --resource-type "AWS::SecretsManager::Secret" \
+  --region eu-central-1
 
-# All service secrets (script loop)
-aws secretsmanager list-secrets --filters Key=name,Values="/dev/" \
-  --query 'SecretList[].Name' --output text --region me-south-1 | \
-  tr '\t' '\n' | while read secret; do
-  aws secretsmanager replicate-secret-to-regions \
-    --secret-id "$secret" \
-    --add-replica-regions Region=eu-central-1 \
-    --region me-south-1
+# Option B: Recreate manually from documentation/password manager
+# For each service, create the required secrets:
+for env in dev sandbox; do
+  # Example: create service secrets
+  aws secretsmanager create-secret --name "/$env/sales" \
+    --secret-string '{"CONNECTION_STRING":"...","API_KEY":"..."}' \
+    --region eu-central-1
 done
 
-# Repeat for /sandbox/ and /rds/ prefixes
+# Terraform bootstrap secret
+aws secretsmanager create-secret --name "terraform" \
+  --secret-string '{"rds_pass":"...","opensearch_pass":"..."}' \
+  --region eu-central-1
 
-# Verify
+# Verify all secrets exist
 aws secretsmanager list-secrets --region eu-central-1 \
-  --query 'SecretList[*].Name'
+  --query 'SecretList[*].Name' --output table
 ```
 
-### 2.3 Terraform Apply
+### 2.4 Terraform Apply
 
-**Important:** Comment out RDS cluster/instance resources before applying. Aurora Global Database (step 2.5) will manage data migration. Import into Terraform state after cutover.
+**Important:** The Terraform configs from Phase 1 already exclude EKS, Redis, OpenSearch, WAF, MSK, and runners. This is a clean apply.
 
 ```bash
 cd ticketing-platform-terraform-dev/dev
@@ -367,7 +573,20 @@ terraform plan                # Review carefully — should show all creates, ze
 terraform apply
 ```
 
-**Creates:** VPC (10.10.0.0/16), 3x subnets per tier, NAT Gateways, Route53 zones, S3 buckets (new names), KMS keys, ECR, IAM roles, security groups, CloudFront distributions, OpenVPN EC2.
+**Creates:** VPC (10.10.0.0/16), 3x subnets per tier (Lambda subnets, RDS subnets, management), NAT Gateways, Route53 zones, S3 buckets (new `-eu` names), KMS keys, IAM roles, security groups, CloudFront distributions, OpenVPN EC2.
+
+**Does NOT create:** EKS cluster, Redis, OpenSearch, WAF, MSK, runners.
+
+**Route53 DNS rerouting:** Terraform creates **new** public hosted zones (`dev.tickets.mdlbeast.net`, `sandbox.tickets.mdlbeast.net`) in eu-central-1. Route53 is a global service, but since this is a fresh Terraform state, new zones are created with new NS records. After `terraform apply`:
+
+1. Get the new zone's nameservers:
+   ```bash
+   aws route53 get-hosted-zone --id <new-zone-id> --query 'DelegationSet.NameServers'
+   ```
+2. **Update NS delegation at the parent domain** (`tickets.mdlbeast.net` or `mdlbeast.net`) to point to the new zone's nameservers. This is the step that makes public DNS resolve to eu-central-1.
+3. CDK stacks (Phase 3) will create A records in these zones pointing to the new eu-central-1 API Gateway endpoints — both public records (`api.{env}.*`, `geidea.{env}.*`) and private VPC-associated records (`*.internal.{env}.*`)
+
+**Note:** Since me-south-1 is down, the old DNS records are already broken. There is no "cutover" risk — updating NS delegation simply restores DNS resolution via the new eu-central-1 infrastructure.
 
 **Verification:**
 ```bash
@@ -377,7 +596,7 @@ aws ec2 describe-subnets --region eu-central-1 \
   --filters "Name=vpc-id,Values=<vpc-id>" --query 'Subnets | length(@)'
 ```
 
-### 2.4 Populate Manual SSM Parameters
+### 2.5 Populate Manual SSM Parameters
 
 These bridge Terraform → CDK and must exist before any CDK deploy:
 
@@ -388,7 +607,7 @@ for env in dev sandbox; do
     --type String --value "ticketing" --region eu-central-1
 done
 
-# RDS cluster references (after Global Database is set up in 2.5)
+# RDS cluster references (after restore in 2.6)
 aws ssm put-parameter --name "/rds/ticketing-cluster-identifier" \
   --type String --value "ticketing-eu" --region eu-central-1
 
@@ -400,13 +619,13 @@ aws ssm put-parameter --name "/rds/ticketing-cluster-sg" \
 
 # Subnet IDs for extension deployer
 SUBNET_1=$(aws ec2 describe-subnets --region eu-central-1 \
-  --filters "Name=tag:Name,Values=eks-subnet-1a-prod" \
+  --filters "Name=tag:Name,Values=lambda-subnet-1a-prod" \
   --query 'Subnets[0].SubnetId' --output text)
 SUBNET_2=$(aws ec2 describe-subnets --region eu-central-1 \
-  --filters "Name=tag:Name,Values=eks-subnet-1b-prod" \
+  --filters "Name=tag:Name,Values=lambda-subnet-1b-prod" \
   --query 'Subnets[0].SubnetId' --output text)
 SUBNET_3=$(aws ec2 describe-subnets --region eu-central-1 \
-  --filters "Name=tag:Name,Values=eks-subnet-1c-prod" \
+  --filters "Name=tag:Name,Values=lambda-subnet-1c-prod" \
   --query 'Subnets[0].SubnetId' --output text)
 
 for env in dev sandbox; do
@@ -415,19 +634,20 @@ for env in dev sandbox; do
   aws ssm put-parameter --name "/$env/tp/SUBNET_3" --type String --value "$SUBNET_3" --region eu-central-1
 done
 
-# Slack webhook URLs (copy from me-south-1)
+# PDF Generator S3 bucket name (used by PdfGenerator ConsumersStack at CDK synth time)
+aws ssm put-parameter --name "/dev/tp/pdf/generator/STORAGE_BUCKET_NAME" \
+  --type String --value "dev-pdf-tickets-eu" --region eu-central-1
+aws ssm put-parameter --name "/sandbox/tp/pdf/generator/STORAGE_BUCKET_NAME" \
+  --type String --value "sandbox-pdf-tickets-eu" --region eu-central-1
+
+# Slack webhook URLs (must be retrieved from Slack workspace or password manager)
 for env in dev sandbox; do
   for param in ErrorsWebhookUrl OperationalErrorsWebhookUrl SuspiciousOrdersWebhookUrl; do
-    VALUE=$(aws ssm get-parameter --name "/$env/tp/SlackNotification/$param" \
-      --with-decryption --region me-south-1 --query 'Parameter.Value' --output text)
     aws ssm put-parameter --name "/$env/tp/SlackNotification/$param" \
-      --type SecureString --value "$VALUE" --region eu-central-1
+      --type SecureString --value "<webhook-url>" --region eu-central-1
   done
-  # Ignored error patterns
-  VALUE=$(aws ssm get-parameter --name "/$env/tp/SlackNotification/IgnoredErrorsPatterns" \
-    --region me-south-1 --query 'Parameter.Value' --output text)
   aws ssm put-parameter --name "/$env/tp/SlackNotification/IgnoredErrorsPatterns" \
-    --type StringList --value "$VALUE" --region eu-central-1
+    --type StringList --value "<patterns>" --region eu-central-1
 done
 ```
 
@@ -437,105 +657,163 @@ aws ssm get-parameters-by-path --path "/" --recursive --region eu-central-1 \
   --query 'Parameters[*].Name'
 ```
 
-### 2.5 Aurora Global Database
+### 2.6 Restore Aurora from AWS Backup
+
+Since me-south-1 is down, restore from the cross-region backup copy in eu-central-1.
 
 ```bash
-# 1. Convert existing me-south-1 cluster to Global Database
-aws rds create-global-cluster \
-  --global-cluster-identifier ticketing-global \
-  --source-db-cluster-identifier arn:aws:rds:me-south-1:307824719505:cluster:ticketing \
-  --region me-south-1
+# 1. List available Aurora backup recovery points in eu-central-1
+aws backup list-recovery-points-by-resource-type \
+  --resource-type "Aurora" --region eu-central-1 \
+  --query 'sort_by(RecoveryPoints, &CreationDate)[-1]'
 
-# 2. Add eu-central-1 as secondary
-aws rds create-db-cluster \
-  --db-cluster-identifier ticketing-eu \
-  --global-cluster-identifier ticketing-global \
-  --engine aurora-postgresql \
-  --engine-version 15.12 \
-  --region eu-central-1 \
-  --db-subnet-group-name postgres \
-  --vpc-security-group-ids $RDS_SG
-
-# 3. Add serverless instance(s)
-aws rds create-db-instance \
-  --db-instance-identifier ticketing-eu-instance-0 \
-  --db-cluster-identifier ticketing-eu \
-  --engine aurora-postgresql \
-  --db-instance-class db.serverless \
+# 2. Restore the cluster from the most recent recovery point
+aws backup start-restore-job \
+  --recovery-point-arn "<recovery-point-arn>" \
+  --iam-role-arn "arn:aws:iam::307824719505:role/AWSBackupDefaultRole" \
+  --metadata '{
+    "DBClusterIdentifier": "ticketing-eu",
+    "Engine": "aurora-postgresql",
+    "DBSubnetGroupName": "postgres",
+    "VpcSecurityGroupIds": "'$RDS_SG'"
+  }' \
   --region eu-central-1
 
-# 4. Monitor replication lag until it reaches ~0
-aws cloudwatch get-metric-statistics \
-  --namespace AWS/RDS --metric-name AuroraGlobalDBReplicationLag \
-  --dimensions Name=DBClusterIdentifier,Value=ticketing-eu \
-  --start-time $(date -u -v-1H +%Y-%m-%dT%H:%M:%S) \
-  --end-time $(date -u +%Y-%m-%dT%H:%M:%S) \
-  --period 60 --statistics Average --region eu-central-1
-```
+# 3. Wait for restore to complete
+aws backup describe-restore-job --restore-job-id "<job-id>" --region eu-central-1
 
-Replication is continuous at the storage level. Zero data loss at cutover.
+# 4. Verify the engine version matches expectations
+aws rds describe-db-clusters --db-cluster-identifier ticketing-eu \
+  --query 'DBClusters[0].EngineVersion' --region eu-central-1
 
-### 2.6 S3 Cross-Region Replication
-
-```bash
-# 1. Enable versioning on source buckets (if not already)
-for bucket in dev-pdf-tickets sandbox-pdf-tickets ticketing-dev-csv-reports \
-  ticketing-sandbox-csv-reports ticketing-dev-media ticketing-sandbox-media; do
-  aws s3api put-bucket-versioning --bucket $bucket \
-    --versioning-configuration Status=Enabled --region me-south-1
+# 5. Add serverless instances (match dev instance count: 3)
+for i in 0 1 2; do
+  aws rds create-db-instance \
+    --db-instance-identifier ticketing-eu-instance-$i \
+    --db-cluster-identifier ticketing-eu \
+    --engine aurora-postgresql \
+    --db-instance-class db.serverless \
+    --region eu-central-1
 done
 
-# 2. Create replication IAM role (or use Terraform to create it)
+# 6. Set Serverless v2 scaling (dev: 0.5-3 ACU)
+aws rds modify-db-cluster \
+  --db-cluster-identifier ticketing-eu \
+  --serverless-v2-scaling-configuration MinCapacity=0.5,MaxCapacity=3 \
+  --region eu-central-1
 
-# 3. Configure CRR per bucket (example for dev-pdf-tickets)
-aws s3api put-bucket-replication --bucket dev-pdf-tickets \
-  --replication-configuration '{
-    "Role": "arn:aws:iam::307824719505:role/s3-replication-role",
-    "Rules": [{
-      "ID": "replicate-to-eu",
-      "Status": "Enabled",
-      "Filter": {"Prefix": ""},
-      "Destination": {
-        "Bucket": "arn:aws:s3:::dev-pdf-tickets-eu",
-        "StorageClass": "STANDARD",
-        "EncryptionConfiguration": {
-          "ReplicaKmsKeyID": "<eu-central-1-kms-key-arn>"
-        }
-      },
-      "SourceSelectionCriteria": {
-        "SseKmsEncryptedObjects": {"Status": "Enabled"}
-      }
-    }]
-  }' --region me-south-1
-
-# 4. Batch Replication for existing objects (CRR only handles new objects)
-# Use S3 Batch Replication job via AWS Console or CLI
+# 7. Verify cluster is available and writable
+aws rds describe-db-clusters --db-cluster-identifier ticketing-eu \
+  --query 'DBClusters[0].{Status:Status,Endpoint:Endpoint,ReaderEndpoint:ReaderEndpoint}' \
+  --region eu-central-1
 ```
 
-### 2.7 DynamoDB Tables
+### 2.7 Restore S3 Data from AWS Backup
 
-DynamoDB tables in this platform are CDK-managed (XRay dedup, cache tables) and are ephemeral. They'll be created fresh by CDK in Phase 3. **No Global Tables replication needed.**
+```bash
+# 1. List S3 backup recovery points in eu-central-1
+aws backup list-recovery-points-by-resource-type \
+  --resource-type "S3" --region eu-central-1
+
+# 2. For each bucket, restore to the new eu-central-1 bucket
+# New buckets were created by Terraform in 2.4 with -eu suffix
+# Restore backed-up data into the new buckets
+
+aws backup start-restore-job \
+  --recovery-point-arn "<recovery-point-arn>" \
+  --iam-role-arn "arn:aws:iam::307824719505:role/AWSBackupDefaultRole" \
+  --metadata '{
+    "DestinationBucketName": "dev-pdf-tickets-eu",
+    "NewBucket": "false"
+  }' \
+  --region eu-central-1
+
+# Repeat for each bucket:
+# - dev-pdf-tickets → dev-pdf-tickets-eu
+# - sandbox-pdf-tickets → sandbox-pdf-tickets-eu
+# - ticketing-dev-csv-reports → ticketing-dev-csv-reports-eu
+# - ticketing-sandbox-csv-reports → ticketing-sandbox-csv-reports-eu
+# - ticketing-dev-media → ticketing-dev-media-eu
+# - ticketing-sandbox-media → ticketing-sandbox-media-eu
+
+# 3. Verify object counts
+for bucket in dev-pdf-tickets-eu sandbox-pdf-tickets-eu ticketing-dev-csv-reports-eu \
+  ticketing-sandbox-csv-reports-eu ticketing-dev-media-eu ticketing-sandbox-media-eu; do
+  echo "$bucket: $(aws s3 ls s3://$bucket --recursive --summarize --region eu-central-1 | tail -1)"
+done
+```
+
+### 2.8 CDK Bootstrap
+
+**Required before any `cdk deploy` in eu-central-1.** CDK needs its bootstrap S3 bucket and IAM roles.
+
+```bash
+CDK_DEFAULT_ACCOUNT=307824719505 CDK_DEFAULT_REGION=eu-central-1 \
+  npx cdk bootstrap aws://307824719505/eu-central-1
+```
+
+**Creates:**
+- S3 bucket: `cdk-hnb659fds-assets-307824719505-eu-central-1`
+- IAM roles for CDK deployment
+- CloudFormation stack: `CDKToolkit`
 
 ### Phase 2 Verification Checklist
 
 - [ ] VPC exists in eu-central-1 with correct CIDR and 3 AZs
-- [ ] All subnets created (RDS, Lambda, management tiers)
+- [ ] All subnets created (Lambda, RDS, management tiers) — **no EKS, Redis, OpenSearch, runner subnets**
 - [ ] NAT Gateways operational with Elastic IPs
-- [ ] Route53 hosted zones created (dev, sandbox)
-- [ ] Aurora Global Database secondary replicating (lag <1s)
-- [ ] S3 CRR active — new objects replicating, batch job running for existing
+- [ ] Route53 hosted zones created (dev, sandbox) — **update NS delegation at parent domain**
+- [ ] Aurora cluster restored from backup and available with 3 instances
+- [ ] Aurora Serverless v2 scaling configured (0.5-3 ACU)
+- [ ] S3 data restored to new `-eu` buckets
 - [ ] All SSM parameters populated
-- [ ] All secrets replicated in eu-central-1
+- [ ] All secrets recreated in eu-central-1
 - [ ] KMS key created in eu-central-1
-- [ ] Security groups configured
+- [ ] Security groups configured (no EKS/Redis/OpenSearch rules)
+- [ ] CDK bootstrap stack deployed
 
 ---
 
-## Phase 3: Dev+Sandbox Services
+## Phase 3: Dev+Sandbox Services & Validation
 
-**Duration:** 1-2 days | **Risk:** MEDIUM | **Rollback:** `cdk destroy` all stacks
+**Duration:** 2-3 days | **Risk:** MEDIUM | **Rollback:** `cdk destroy` all stacks
 
-### 3.1 Infrastructure CDK (11 Stacks — Strict Order)
+### 3.1 Create ACM Certificates
+
+Three certificates needed before CDK stack deployment:
+
+```bash
+# 1. Gateway public certificate (manual — not created by CDK)
+for env in dev sandbox; do
+  CERT_ARN=$(aws acm request-certificate \
+    --domain-name "api.$env.tickets.mdlbeast.net" \
+    --validation-method DNS \
+    --region eu-central-1 \
+    --query 'CertificateArn' --output text)
+  # Complete DNS validation via Route53
+  aws ssm put-parameter --name "/$env/tp/DomainCertificateArn" \
+    --type String --value "$CERT_ARN" --region eu-central-1
+done
+
+# 2. Geidea certificate (manual — not created by CDK)
+for env in dev sandbox; do
+  CERT_ARN=$(aws acm request-certificate \
+    --domain-name "geidea.$env.tickets.mdlbeast.net" \
+    --validation-method DNS \
+    --region eu-central-1 \
+    --query 'CertificateArn' --output text)
+  aws ssm put-parameter --name "/$env/tp/geidea/DomainCertificateArn" \
+    --type String --value "$CERT_ARN" --region eu-central-1
+done
+
+# 3. Internal certificate — created by InternalCertificateStack in 3.2 (no manual action)
+
+# Verify all certs are ISSUED
+aws acm list-certificates --region eu-central-1 \
+  --query 'CertificateSummaryList[*].{Domain:DomainName,Status:Status}'
+```
+
+### 3.2 Infrastructure CDK (11 Stacks — Strict Order)
 
 ```bash
 cd ticketing-platform-infrastructure
@@ -579,7 +857,7 @@ cdk deploy TP-SlackNotificationStack-dev --require-approval never
 cdk deploy TP-XRayInsightNotificationStack-dev --require-approval never
 ```
 
-### 3.2 Update Connection Strings
+### 3.3 Update Connection Strings
 
 After RDS Proxy deploys, get the new endpoint and update service secrets:
 
@@ -591,29 +869,46 @@ RDS_PROXY_ENDPOINT=$(aws rds describe-db-proxies --region eu-central-1 \
 # Format: Host=<endpoint>;Database=<db>;Username=<user>;Password=<pass>
 ```
 
-### 3.3 Per-Service CDK (20 Services)
+### 3.4 Per-Service CDK Deployment Matrix
 
-Deploy services in this order (gateway first, then by dependency):
+Deploy services using the validated per-service stack matrix. **Not all services follow the same pattern.**
 
-```
- 1. Gateway              11. Loyalty
- 2. Catalogue            12. Marketplace
- 3. Organizations        13. Integration
- 4. Inventory            14. Distribution Portal
- 5. Pricing              15. Geidea
- 6. Sales                16. Extension API
- 7. Access Control       17. Extension Deployer
- 8. Media                18. Extension Executor
- 9. Reporting API        19. Extension Log Processor
-10. Transfer             20. CSV Generator / PDF Generator
+For each service, set:
+```bash
+export CDK_DEFAULT_REGION=eu-central-1 ENV_NAME=dev
 ```
 
-For each service:
+| # | Service | Stacks (deploy in order) | Has DbMigrator |
+|---|---------|--------------------------|----------------|
+| 1 | **gateway** | GatewayStack | NO |
+| 2 | **catalogue** | DbMigratorStack → ServerlessBackendStack | YES |
+| 3 | **organizations** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 4 | **inventory** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 5 | **pricing** | DbMigratorStack → ConsumersStack → ServerlessBackendStack | YES |
+| 6 | **sales** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 7 | **access-control** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 8 | **media** | DbMigratorStack → MediaStorageStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 9 | **reporting-api** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 10 | **transfer** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 11 | **loyalty** | ConsumersStack → BackgroundJobsStack | NO |
+| 12 | **marketplace** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 13 | **integration** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 14 | **distribution-portal** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 15 | **geidea** | ConsumersStack → BackgroundJobsStack → ApiStack (HTTP API v2) | NO |
+| 16 | **extension-api** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 17 | **extension-deployer** | ExtensionDeployerLambdaRoleStack → ExtensionDeployerStack | NO |
+| 18 | **extension-executor** | ExtensionExecutorStack | NO |
+| 19 | **extension-log-processor** | ExtensionLogsProcessorStack | NO |
+| 20 | **csv-generator** | ConsumersStack | NO |
+| 21 | **pdf-generator** | ConsumersStack | NO |
+| 22 | **automations** | WeeklyTicketsSenderStack + AutomaticDataExporterStack + FinanceReportSenderStack | NO |
+| 23 | **customer-service** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+
+**For services with DbMigrator:**
 ```bash
 cd ticketing-platform-<service>/src/TP.<Service>.Cdk
-export CDK_DEFAULT_REGION=eu-central-1 ENV_NAME=dev
 
-# 1. DB Migrator
+# 1. Deploy DbMigrator stack
 cdk deploy TP-DbMigratorStack-<service>-dev --require-approval never
 
 # 2. Run migration
@@ -624,88 +919,10 @@ aws lambda invoke --function-name "<service>-db-migrator-lambda-dev" \
 aws logs create-log-group --log-group-name "/aws/lambda/<service>-serverless-dev-function" --region eu-central-1
 aws logs create-log-group --log-group-name "/aws/lambda/<service>-consumers-lambda-dev" --region eu-central-1
 
-# 4-6. Deploy remaining stacks
-cdk deploy TP-ConsumersStack-<service>-dev --require-approval never
-cdk deploy TP-BackgroundJobsStack-<service>-dev --require-approval never
-cdk deploy TP-ServerlessBackendStack-<service>-dev --require-approval never
+# 4+. Deploy remaining stacks in order per matrix above
 ```
 
-### 3.4 Event Flow Validation
-
-```bash
-# Verify all components exist
-aws events describe-event-bus --name "event-bus-dev" --region eu-central-1
-aws sqs list-queues --region eu-central-1 --queue-name-prefix "TP-"
-aws lambda list-functions --region eu-central-1 \
-  --query 'Functions[?contains(FunctionName, `-dev-`)].FunctionName'
-
-# Publish test event
-aws events put-events --entries '[{
-  "Source": "TicketingPlatform",
-  "DetailType": "TestEvent",
-  "Detail": "{\"test\": true}",
-  "EventBusName": "event-bus-dev"
-}]' --region eu-central-1
-```
-
-### Phase 3 Verification Checklist
-
-- [ ] All 11 infrastructure stacks in CREATE_COMPLETE (both dev + sandbox)
-- [ ] All 20 service stacks deployed
-- [ ] All DB migrations ran successfully
-- [ ] Lambda functions responding (test invoke each)
-- [ ] EventBridge rules → SQS queues (18 consumers)
-- [ ] Internal DNS resolving (`*.internal.dev.tickets.mdlbeast.net`)
-- [ ] API Gateway endpoints accessible via VPC endpoint
-- [ ] RDS Proxy connecting to Aurora
-
----
-
-## Phase 4: Dev+Sandbox Cutover (Maintenance Window)
-
-**Duration:** 2-4 hours | **Risk:** HIGH | **Rollback:** Revert DNS + Aurora + GitHub secrets
-
-### 4.1 Pre-Cutover Checks
-
-- [ ] Aurora replication lag = 0
-- [ ] S3 CRR fully caught up
-- [ ] All stacks deployed and healthy
-- [ ] Rollback plan rehearsed
-
-### 4.2 Stop me-south-1 Traffic
-
-```bash
-# Set Lambda reserved concurrency to 0 on all dev/sandbox functions
-aws lambda list-functions --region me-south-1 \
-  --query 'Functions[?contains(FunctionName,`-dev-`) || contains(FunctionName,`-sandbox-`)].FunctionName' \
-  --output text | tr '\t' '\n' | while read fn; do
-  aws lambda put-function-concurrency --function-name "$fn" \
-    --reserved-concurrent-executions 0 --region me-south-1
-done
-
-# Wait 5 minutes for in-flight requests to drain
-```
-
-### 4.3 Aurora Switchover
-
-```bash
-aws rds switchover-global-cluster \
-  --global-cluster-identifier ticketing-global \
-  --target-db-cluster-identifier arn:aws:rds:eu-central-1:307824719505:cluster:ticketing-eu \
-  --region me-south-1
-
-# Wait 5-30 minutes for completion
-# Verify eu-central-1 is now the writer
-aws rds describe-global-clusters --global-cluster-identifier ticketing-global \
-  --query 'GlobalClusters[0].GlobalClusterMembers[*].{ARN:DBClusterArn,Writer:IsWriter}' \
-  --region me-south-1
-```
-
-### 4.4 DNS Cutover
-
-Update Route53 public records to eu-central-1 API Gateway endpoints. Use weighted routing (0% me-south-1, 100% eu-central-1) for instant rollback.
-
-### 4.5 Update GitHub Secrets
+### 3.5 Update GitHub Secrets & Variables
 
 ```bash
 repos=(
@@ -723,21 +940,36 @@ repos=(
   ticketing-platform-tools ticketing-platform-dashboard
   ticketing-platform-distribution-portal-frontend
   ticketing-platform-terraform-dev ticketing-platform-terraform-prod
-  ticketing-platform-mobile-scanner
+  ticketing-platform-mobile-scanner ticketing-platform-templates-ci-cd
+  ticketing-platform-automations ticketing-platform-customer-service
+  ticketing-platform-shared
+  ticketing-platform-configmap-dev ticketing-platform-configmap-sandbox
 )
 
+# Update ALL region-related secrets (not just AWS_DEFAULT_REGION)
 for repo in "${repos[@]}"; do
   gh secret set AWS_DEFAULT_REGION --body "eu-central-1" --repo "mdlbeasts/$repo"
 done
+
+# Additional secrets on specific repos
+gh secret set AWS_DEFAULT_REGION_PROD --body "eu-central-1" --repo "mdlbeasts/ticketing-platform-terraform-dev"
+gh secret set TP_AWS_DEFAULT_REGION_PROD --body "eu-central-1" --repo "mdlbeasts/ticketing-platform-configmap-prod"
+gh secret set AWS_DEFAULT_REGION_PROD --body "eu-central-1" --repo "mdlbeasts/ticketing-platform-configmap-prod"
+gh secret set CDK_DEFAULT_REGION --body "eu-central-1" --repo "mdlbeasts/ticketing-platform-extension-deployer"
+
+# GitHub variables (not secrets)
+gh variable set STORYBOOK_BUCKET_NAME --body "<new-eu-bucket>" --repo "mdlbeasts/ticketing-platform-dashboard"
+gh variable set STORYBOOK_CLOUDFRONT_DISTRIBUTION_ID --body "<new-distro-id>" --repo "mdlbeasts/ticketing-platform-dashboard"
 ```
 
-### 4.6 Merge Feature Branches & Deploy Frontends
+### 3.6 Merge Feature Branches & Deploy Frontends
 
 - Merge all `feature/region-migration-eu-central-1` branches into `development`
-- Dashboard: merge vercel.json changes → triggers Vercel redeploy
+- Dashboard: merge vercel.json + .env changes → triggers Vercel redeploy
 - Distribution Portal: merge and verify
+- Trigger a test CDK deployment of one service to verify CI/CD targets eu-central-1
 
-### 4.7 End-to-End Validation
+### 3.7 End-to-End Validation
 
 - [ ] Dashboard login works (Auth0 + API)
 - [ ] Create event in catalogue
@@ -750,169 +982,206 @@ done
 - [ ] Slack notifications arriving (check console links point to eu-central-1)
 - [ ] Inter-service event flow (EventBridge → SQS → Consumer)
 - [ ] CloudWatch logs populating in eu-central-1
+- [ ] Geidea payment webhook test (verify API endpoint accessible)
+- [ ] Extension deployer creates Lambda in eu-central-1
 
-### 4.8 Rollback Procedure
+### Phase 3 Verification Checklist
 
-If critical issues found:
-1. Revert DNS weights (100% me-south-1, 0% eu-central-1)
-2. Aurora switchover back: `aws rds switchover-global-cluster` targeting me-south-1
-3. Revert `AWS_DEFAULT_REGION` GitHub secrets to `me-south-1`
-4. Remove Lambda concurrency limits on me-south-1 functions
-5. Revert code branches
-
-### 4.9 Post-Cutover
-
-- Monitor for 24 hours
-- Keep me-south-1 infrastructure intact for 7 days as safety net
+- [ ] All 11 infrastructure stacks in CREATE_COMPLETE (both dev + sandbox)
+- [ ] All 21 service stacks deployed per matrix
+- [ ] All DB migrations ran successfully
+- [ ] Lambda functions responding (test invoke each)
+- [ ] EventBridge rules → SQS queues (18 consumers)
+- [ ] Internal DNS resolving (`*.internal.dev.tickets.mdlbeast.net`)
+- [ ] API Gateway endpoints accessible via VPC endpoint
+- [ ] RDS Proxy connecting to Aurora
+- [ ] GitHub secrets updated (all 4 region secrets)
+- [ ] CI/CD deploying to eu-central-1 (verify with one test push)
 
 ---
 
-## Phase 5: Production Foundation
+## Phase 4: Production Foundation & Data Restore
 
 **Duration:** 2-3 days | **Risk:** HIGH | **Account:** `660748123249`
 
-Same as Phase 2 but for production account:
+Same pattern as Phase 2 but for production account.
 
-### 5.1 State Bucket
+### 4.1 Service Quota Pre-Checks (Prod)
+Same as 2.1 but for prod account.
+
+### 4.2 State Bucket (Prod)
 ```bash
 aws s3 mb s3://ticketing-terraform-prod-eu --region eu-central-1 --profile prod
-# Enable versioning + encryption
+# Enable versioning + encryption (same as 2.2)
 ```
 
-### 5.2 Complete Security Remediation
-- Move plaintext passwords from `variables.tf` to Secrets Manager
-- Rotate any credentials committed to git history
+### 4.3 Security Remediation
+- Move plaintext passwords from `variables.tf` to Secrets Manager (`rds_pass`, `rds_pass_inventory`, `opensearch_pass`)
+- Update Terraform to use `data.aws_secretsmanager_secret_version` for credential retrieval
+- Rotate any credentials that were committed to git history
 
-### 5.3 Replicate Prod Secrets
-```bash
-aws secretsmanager list-secrets --filters Key=name,Values="/prod/" \
-  --query 'SecretList[].Name' --output text --region me-south-1 --profile prod | \
-  tr '\t' '\n' | while read secret; do
-  aws secretsmanager replicate-secret-to-regions \
-    --secret-id "$secret" \
-    --add-replica-regions Region=eu-central-1 \
-    --region me-south-1 --profile prod
-done
-```
+### 4.4 Recreate Prod Secrets
+Same as 2.3 but for `/prod/` prefix secrets.
 
-### 5.4 Terraform Apply (Prod)
+### 4.5 Terraform Apply (Prod)
 ```bash
 cd ticketing-platform-terraform-prod/prod
 terraform init -reconfigure
+terraform plan    # Verify: creates VPC, RDS, S3, IAM — NO EKS/Redis/OpenSearch/WAF/runners
 terraform apply
 ```
 
-**Additional prod resources:** WAF, Redis/ElastiCache, OpenSearch.
+### 4.6 Populate Prod SSM Parameters
+Same as 2.5 but for prod account with prod values. Including:
+- `/{env}/tp/pdf/generator/STORAGE_BUCKET_NAME` → `pdf-tickets-prod-eu` (or equivalent prod bucket name)
 
-### 5.5 Aurora Global Database (Prod)
-```bash
-aws rds create-global-cluster \
-  --global-cluster-identifier ticketing-prod-global \
-  --source-db-cluster-identifier arn:aws:rds:me-south-1:660748123249:cluster:ticketing \
-  --region me-south-1 --profile prod
+### 4.7 Restore Aurora from AWS Backup (Prod)
+Same pattern as 2.6 but:
+- Use prod backup recovery point
+- Cluster identifier: `ticketing-prod-eu`
+- **3 serverless instances** for prod
+- **Scaling: MinCapacity=1.5, MaxCapacity=64** (match prod capacity)
+- **Temporarily increase MinCapacity to 8+ ACU** during go-live week to handle cold-cache load
 
-aws rds create-db-cluster \
-  --db-cluster-identifier ticketing-prod-eu \
-  --global-cluster-identifier ticketing-prod-global \
-  --engine aurora-postgresql --engine-version 15.12 \
-  --region eu-central-1 --db-subnet-group-name postgres \
-  --vpc-security-group-ids $PROD_RDS_SG --profile prod
-
-# 3 serverless instances for prod
-for i in 0 1 2; do
-  aws rds create-db-instance \
-    --db-instance-identifier ticketing-prod-eu-instance-$i \
-    --db-cluster-identifier ticketing-prod-eu \
-    --engine aurora-postgresql --db-instance-class db.serverless \
-    --region eu-central-1 --profile prod
-done
-```
-
-### 5.6 S3 CRR (Prod Buckets)
+### 4.8 Restore S3 Data (Prod)
+Same as 2.7 for prod buckets:
+- `pdf-tickets-prod` → `pdf-tickets-prod-eu`
 - `tickets-pdf-download` → `tickets-pdf-download-eu`
 - `ticketing-csv-reports` → `ticketing-csv-reports-eu`
-- `pdf-tickets-prod` → `pdf-tickets-prod-eu`
 - `ticketing-prod-media` → `ticketing-prod-media-eu`
 
-### 5.7 Populate Prod SSM Parameters
-Same as Phase 2.4 but for prod account with prod values.
-
-### 5.8 Deploy All CDK Stacks (Prod)
-Same as Phase 3 but with `ENV_NAME=prod`.
-
-### 5.9 Pre-Cutover Validation
-Let prod eu-central-1 run in parallel for 24-48 hours. Validate all stacks, DB migrations, and Lambda health.
+### 4.9 CDK Bootstrap (Prod)
+```bash
+CDK_DEFAULT_ACCOUNT=660748123249 CDK_DEFAULT_REGION=eu-central-1 \
+  npx cdk bootstrap aws://660748123249/eu-central-1 --profile prod
+```
 
 ---
 
-## Phase 6: Production Cutover (Scheduled Maintenance Window)
+## Phase 5: Production Services & Go-Live
 
-**Duration:** 4-6 hours | **Risk:** CRITICAL | **Rollback:** Reverse Aurora + DNS + GitHub secrets
+**Duration:** 1-2 days | **Risk:** CRITICAL
 
-### Additional Prod Safety
+### 5.1 Create ACM Certificates (Prod)
+Same as 3.1 but for prod domains (`api.tickets.mdlbeast.net`, `geidea.tickets.mdlbeast.net`).
 
-1. **Final RDS snapshot:**
-   ```bash
-   aws rds create-db-cluster-snapshot \
-     --db-cluster-identifier ticketing \
-     --db-cluster-snapshot-identifier ticketing-pre-migration-$(date +%Y%m%d) \
-     --region me-south-1 --profile prod
-   ```
+### 5.2 Deploy All CDK Stacks (Prod)
+Same as 3.2 with `ENV_NAME=prod`.
 
-2. **Verify replication lag = 0** via CloudWatch metrics
+### 5.3 Update Connection Strings (Prod)
+Same as 3.3 for prod secrets.
 
-3. **Pre-check eu-central-1 service limits:** Lambda concurrency, VPC EIPs, RDS quotas
+### 5.4 Per-Service CDK (Prod)
+Same matrix as 3.4 with `ENV_NAME=prod`.
 
-4. **Notify all stakeholders** with exact timeline
+### 5.5 Update GitHub Secrets (Prod)
+```bash
+# Prod-specific secrets (if separate from dev)
+gh secret set AWS_DEFAULT_REGION_PROD --body "eu-central-1" --repo "mdlbeasts/ticketing-platform-terraform-prod"
+```
 
-### Cutover Steps
+### 5.6 Merge to Production & Deploy Frontends
+- Merge feature branches to `master`/`production`
+- Dashboard: Vercel auto-deploys
+- Distribution Portal: verify deployment
+- Mobile Scanner: trigger release build
 
-Same as Phase 4:
-1. Enter maintenance → stop me-south-1 traffic → drain requests (5 min)
-2. Aurora switchover → verify writer in eu-central-1
-3. DNS cutover (weighted routing)
-4. Update `AWS_DEFAULT_REGION` GitHub secrets for prod repos
-5. Merge feature branches to `production`/`master`
-6. Full E2E validation (complete ticket lifecycle)
-7. Exit maintenance
+### 5.7 End-to-End Validation (Prod)
+Full ticket lifecycle test:
+- [ ] Dashboard login (prod Auth0)
+- [ ] Create event → create tickets → process order → generate PDF → scan ticket
+- [ ] Payment flow (Geidea webhook delivery to new endpoint)
+- [ ] CSV report generation
+- [ ] Media upload/download
+- [ ] Inter-service event flow
+- [ ] Slack error notifications (verify console links)
+- [ ] CloudWatch logs + X-Ray traces in eu-central-1
+- [ ] DNS resolution for all public endpoints
 
-### Post-Cutover Monitoring (72 hours)
+### 5.8 Post-Go-Live Monitoring (72 hours)
 
 - CloudWatch dashboards for all services
 - Slack error channel for elevated error rates
 - Sentry for new error patterns
-- RDS metrics (connections, latency, CPU)
+- RDS metrics (connections, latency, CPU, ACU utilization)
 - S3 access patterns
+- Lambda cold start frequency
+
+**After 72 hours stable:** Reduce Aurora min ACU back to normal production levels.
 
 ---
 
-## Post-Migration Cleanup (After 7-Day Stability Window)
+## Post-Migration Tasks
 
-### Data Stores
-- [ ] Detach me-south-1 from Aurora Global Database → delete old clusters
-- [ ] Disable S3 CRR → delete me-south-1 buckets (after confirming all data replicated)
-- [ ] Import new RDS cluster into Terraform state
+### Extension Lambda Redeployment
 
-### Infrastructure
-- [ ] `cdk destroy` all CloudFormation stacks in me-south-1
-- [ ] `terraform destroy` me-south-1 infrastructure (carefully, after all data confirmed)
+Existing extension Lambdas from me-south-1 no longer exist. Extension metadata survives in the restored Aurora database. Redeploy all active extensions to eu-central-1:
+
+```bash
+# 1. Verify extension-deployer SSM parameter exists
+aws ssm get-parameter --name "/{env}/tp/extensions/EXTENSION_DEFAULT_ROLE" --region eu-central-1
+
+# 2. Query extension-api for all deployed extensions
+# (via API or direct DB query against restored Aurora)
+# Look for extensions with deploymentStatus = Deployed
+
+# 3. For each extension, trigger redeployment:
+# Option A: Call extension-api update endpoint for each extension
+# Option B: Publish ExtensionChangeEvent to SQS for each extension
+# The deployer Lambda (now in eu-central-1) will recreate Extension_{id} Lambdas
+```
+
+Do this after Phase 3.7 (dev/sandbox) and Phase 5.7 (prod).
+
+---
+
+## Post-Migration Cleanup
+
+### Data Stores (after 7-day stability)
+- [ ] Schedule me-south-1 KMS key deletion (7-day minimum wait) — once region recovers
+- [ ] Verify all S3 data restored completely (compare object counts if possible)
+- [ ] Import Aurora cluster into Terraform state
+
+### Infrastructure (once me-south-1 recovers)
+- [ ] Delete any remaining me-south-1 resources via Terraform/CDK
 - [ ] Delete me-south-1 Terraform state buckets
 - [ ] Clean up IAM roles/policies specific to me-south-1
 
+### EKS Deprecation Cleanup
+- [ ] Delete EKS cluster in me-south-1 (once region recovers)
+- [ ] Delete ECR repositories (no longer needed)
+- [ ] Archive ConfigMap repos (add README noting EKS deprecation)
+- [ ] Remove `deploy.yml` and `k8s.yml` from `ticketing-platform-templates-ci-cd`
+- [ ] Remove Helm charts from all service repos (or add deprecation notice)
+- [ ] Remove Dockerfiles that were EKS-only (keep if useful for local dev)
+
+### Redis/OpenSearch Cleanup
+- [ ] Delete Redis clusters in me-south-1 (once region recovers)
+- [ ] Delete OpenSearch domains in me-south-1 (once region recovers)
+- [ ] Remove all `Redis__Host`, `Redis__Password` commented config from ConfigMaps
+- [ ] Remove all `Logging__Elasticsearch__*` config from ConfigMaps
+- [ ] Remove `StackExchange.Redis` NuGet package from `TP.Tools.DataAccessLayer` if unused
+- [ ] Remove Redis health check code from `HealthCheckExtensions.cs`
+
+### Runner Cleanup
+- [ ] Deregister me-south-1 GitHub Actions runners (once region recovers)
+- [ ] Terminate runner EC2 instances
+- [ ] Update ConfigMap CI/CD workflows to use `ubuntu-latest` (or delete workflows entirely)
+
 ### Configuration
-- [ ] Promote Secrets Manager replicas to standalone in eu-central-1
+- [ ] Promote any Secrets Manager replicas to standalone in eu-central-1 (if applicable)
 - [ ] Verify no remaining GitHub secret references to me-south-1
-- [ ] Restore DNS TTLs to normal values (300-3600s)
+- [ ] Restore DNS TTLs to normal values (300-3600s) — if they were lowered before outage
 
 ### Security
-- [ ] Rotate all credentials
+- [ ] Rotate all credentials (new RDS passwords, API keys for eu-central-1)
 - [ ] Audit IAM policies for region-specific ARNs
-- [ ] Schedule me-south-1 KMS key deletion (7-day min wait)
+- [ ] Remove committed `.tfstate` files from git history (consider BFG Repo-Cleaner)
 
 ### Documentation
 - [ ] Update CLAUDE.md with new region references
 - [ ] Update `.personal/DEPLOYMENT.md` and `.personal/ARCHITECTURE.md`
-- [ ] Archive me-south-1 Terraform state for reference
+- [ ] Document the EKS deprecation decision and Lambda-only architecture
 
 ---
 
@@ -920,18 +1189,25 @@ Same as Phase 4:
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Data loss during Aurora switchover | LOW | CRITICAL | Managed switchover (not failover), verify replication lag = 0 |
-| S3 objects not replicated | LOW | HIGH | CRR + Batch Replication, verify object counts match |
-| CDK stack ordering failure | MEDIUM | MEDIUM | Strict sequential deploy per dependency chain |
-| Missing SSM parameter | HIGH | HIGH | Comprehensive param list; verify all exist before CDK |
-| CI/CD deploys to wrong region | LOW | HIGH | Freeze deployments during transition; atomic secret update |
-| Event flow breaks | MEDIUM | HIGH | All services cut over simultaneously; E2E event chain test |
-| DNS propagation delay | LOW | MEDIUM | Lower TTL to 60s, 48h before cutover |
-| Cold Aurora with prod load | MEDIUM | HIGH | Increase min ACU during cutover week |
-| Plaintext credentials exposed | HIGH | HIGH | Security remediation in Phase 1; rotate after migration |
-| eu-central-1 service limits | LOW | HIGH | Pre-check quotas before starting |
+| **AWS Backup restore fails or data is stale** | LOW | CRITICAL | Verify backup recency; test restore on dev first; check RPO of backup schedule |
+| **Secrets cannot be reconstructed** | MEDIUM | CRITICAL | Maintain offline credential documentation; check AWS Backup for Secrets Manager |
+| CDK deploy fails (missing bootstrap) | ~~HIGH~~ RESOLVED | CRITICAL | CDK bootstrap added as Phase 2.8 and 4.9 |
+| Gateway/Geidea CDK fails (missing cert SSM) | ~~HIGH~~ RESOLVED | HIGH | ACM cert creation added as Phase 3.1 and 5.1 |
+| CI/CD deploys to wrong region (missed secrets) | ~~MEDIUM~~ RESOLVED | HIGH | All 4 GitHub secrets updated in Phase 3.5 |
+| CDK stack deployment fails (wrong pattern) | ~~HIGH~~ RESOLVED | MEDIUM | Per-service matrix replaces generic template |
+| Missing SSM parameter | MEDIUM | HIGH | Comprehensive param list in 2.5; verify all exist before CDK |
+| Cold Aurora with prod load | MEDIUM | HIGH | Increase min ACU during go-live week; restore gives warm data |
+| Extension Lambdas orphaned in me-south-1 | MEDIUM | MEDIUM | Document redeployment requirement; verify deployer uses `AWS_REGION` env var |
+| S3 bucket naming collision | LOW | MEDIUM | Using `-eu` suffix strategy; old buckets in down region don't conflict |
+| DNS propagation delay | LOW | MEDIUM | Lower TTL if possible; use weighted routing |
+| eu-central-1 service limits | LOW | HIGH | Pre-check quotas in 2.1 and 4.1 |
+| Cold Lambda performance post-go-live | MEDIUM | MEDIUM | Consider provisioned concurrency for gateway/sales |
+| Storybook deployment broken | MEDIUM | LOW | Migrate S3 + CloudFront; update GitHub vars |
+| S3 lifecycle on wrong bucket (dev) | LOW | LOW | Fixed in Phase 1 |
 
 ---
 
 *Plan created: 2026-03-05*
+*Revised: 2026-03-24 — me-south-1 down (disaster recovery), EKS deprecated, Redis/OpenSearch removed, CDK bootstrap added, per-service CDK matrix, CI/CD templates audited*
 *Based on research in: `.planning/research/{ARCHITECTURE,PITFALLS,STACK}.md`*
+*Review document: `.personal/tasks/2026-03-05_aws-region-migration/review.md`*
