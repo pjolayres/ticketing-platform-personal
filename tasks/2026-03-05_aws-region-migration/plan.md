@@ -101,6 +101,7 @@ The MDLBEAST Ticketing Platform must migrate from AWS me-south-1 (Bahrain) to eu
 | OpenSearch/Elasticsearch | **Remove — do not recreate** | Confirmed ghost config: Serilog has no Elasticsearch sink installed. Config references exist but no data flows. |
 | Data migration strategy | **Restore from AWS Backup** | me-south-1 is down; live replication impossible. Cross-region backup copies exist in eu-central-1. |
 | `demo` environment | **Defer** | Not critical path. Address after prod and dev/sandbox are live. |
+| XP Badges, Bandsintown, Marketing Feeds | **Exclude from migration** | Unused services due for deprecation. Do not migrate — remove from all migration tasks. |
 
 ---
 
@@ -139,23 +140,34 @@ The MDLBEAST Ticketing Platform must migrate from AWS me-south-1 (Bahrain) to eu
 
 ### Category 2: CDK env-var JSON Files (~40 files)
 
-All `env-var.{dev,sandbox,prod,demo}.json` files with `"STORAGE_REGION": "me-south-1"` across these services:
+All `env-var.{dev,sandbox,prod,demo}.json` files with `"STORAGE_REGION": "me-south-1"` across these services (15 total):
 
 - `ticketing-platform-access-control/src/TP.AccessControl.Cdk/`
-- `ticketing-platform-catalogue/src/TP.Catalogue.Cdk/`
-- `ticketing-platform-distribution-portal/src/TP.DistributionPortal.Cdk/`
+- `ticketing-platform-automations/src/TP.Automations.Cdk/`
+- `ticketing-platform-customer-service/src/TP.Customers.Cdk/`
 - `ticketing-platform-geidea/src/TP.Geidea.Cdk/`
 - `ticketing-platform-integration/src/TP.Integration.Cdk/`
 - `ticketing-platform-inventory/src/TP.Inventory.Cdk/`
 - `ticketing-platform-loyalty/src/TP.Loyalty.Cdk/`
 - `ticketing-platform-marketplace-service/src/TP.Marketplace.Cdk/`
 - `ticketing-platform-media/src/TP.Media.Cdk/`
-- `ticketing-platform-organizations/src/Organizations/TP.Organizations.Cdk/`
 - `ticketing-platform-pricing/src/TP.Pricing.Cdk/`
 - `ticketing-platform-reporting-api/src/TP.ReportingService.Cdk/`
 - `ticketing-platform-sales/src/TP.Sales.Cdk/`
 - `ticketing-platform-transfer/src/TP.Transfer.Cdk/`
 - `ticketing-platform-tools/Debug.Cdk/`
+- `ecwid-integration/src/TP.Ecwid.Cdk/`
+
+**Note:** `catalogue`, `organizations`, and `distribution-portal` do NOT have `STORAGE_REGION` in their env-var files.
+
+**S3 bucket name variables that also need updating (not covered by bulk STORAGE_REGION script):**
+
+| File | Variable | Old Value | New Value |
+|------|----------|-----------|-----------|
+| `ticketing-platform-media/src/TP.Media.Cdk/env-var.prod.json` | `MEDIA_STORAGE_BUCKET_NAME` | `ticketing-prod-media` | `ticketing-prod-media-eu` |
+| `ticketing-platform-media/src/TP.Media.Cdk/env-var.prod.json` | `STORAGE_BUCKET_NAME` | `tickets-pdf-download` | `tickets-pdf-download-eu` |
+| `ticketing-platform-media/src/TP.Media.Cdk/env-var.prod.json` | `STORAGE_BUCKET_NAME_PDF` | `tickets-pdf-download` | `tickets-pdf-download-eu` |
+| `ticketing-platform-integration/src/TP.Integration.Cdk/env-var.prod.json` | `STORAGE_BUCKET_NAME` | `tickets-pdf-download` | `tickets-pdf-download-eu` |
 
 **Bulk update script:**
 ```bash
@@ -166,30 +178,32 @@ find . -name "env-var.*.json" -not -path "*/node_modules/*" -not -path "*/.terra
 done
 ```
 
-### Category 3: aws-lambda-tools-defaults.json (32+ files)
+### Category 3: aws-lambda-tools-defaults.json (42 files)
 
 Every Lambda project directory with `"region": "me-south-1"`:
 
 1. `ticketing-platform-access-control/src/TP.AccessControl.{BackgroundJobs,Consumers}/`
 2. `ticketing-platform-csv-generator/TP.CSVGenerator.Consumers/`
-3. `ticketing-platform-distribution-portal/src/TP.DistributionPortal.{BackgroundJobs,Consumers}/`
-4. `ticketing-platform-extension-api/TP.Extensions.{BackgroundJobs,Consumers}/`
-5. `ticketing-platform-extension-deployer/TP.Extensions.Deployer.Lambda/`
-6. `ticketing-platform-extension-executor/TP.Extensions.Executor.Lambda/`
-7. `ticketing-platform-extension-log-processor/TP.Extensions.LogsProcessor.Lambda/`
-8. `ticketing-platform-gateway/src/Gateway/`
-9. `ticketing-platform-geidea/src/TP.Geidea.{BackgroundJobs,Lambda.Balance}/`
-10. `ticketing-platform-integration/src/TP.Integration.{BackgroundJobs,Consumers}/`
-11. `ticketing-platform-inventory/src/TP.Inventory.{BackgroundJobs,Consumers}/`
-12. `ticketing-platform-loyalty/src/TP.Loyalty.{BackgroundJobs,Consumers}/`
-13. `ticketing-platform-marketplace-service/src/TP.Marketplace.{BackgroundJobs,Consumers}/`
-14. `ticketing-platform-media/src/TP.Media.{BackgroundJobs,Consumers}/`
-15. `ticketing-platform-organizations/src/Organizations/TP.Organizations.{BackgroundJobs,Consumers}/`
-16. `ticketing-platform-pdf-generator/TP.PdfGenerator.Consumers/`
-17. `ticketing-platform-pricing/src/TP.Pricing.Consumers/`
-18. `ticketing-platform-reporting-api/src/TP.ReportingService.{BackgroundJobs,Consumers}/`
-19. `ticketing-platform-sales/src/TP.Sales.{BackgroundJobs,Consumers}/`
-20. `ticketing-platform-transfer/src/TP.Transfer.{BackgroundJobs,Consumers}/`
+3. `ticketing-platform-customer-service/src/TP.Customers.{BackgroundJobs,Consumers}/`
+4. `ticketing-platform-distribution-portal/src/TP.DistributionPortal.{BackgroundJobs,Consumers}/`
+5. `ticketing-platform-extension-api/TP.Extensions.{BackgroundJobs,Consumers}/`
+6. `ticketing-platform-extension-deployer/TP.Extensions.Deployer.Lambda/`
+7. `ticketing-platform-extension-executor/TP.Extensions.Executor.Lambda/`
+8. `ticketing-platform-extension-log-processor/TP.Extensions.LogsProcessor.Lambda/`
+9. `ticketing-platform-gateway/src/Gateway/`
+10. `ticketing-platform-geidea/src/TP.Geidea.{BackgroundJobs,Lambda.Balance}/`
+11. `ticketing-platform-integration/src/TP.Integration.{BackgroundJobs,Consumers}/`
+12. `ticketing-platform-inventory/src/TP.Inventory.{BackgroundJobs,Consumers}/`
+13. `ticketing-platform-loyalty/src/TP.Loyalty.{BackgroundJobs,Consumers}/`
+14. `ticketing-platform-marketplace-service/src/TP.Marketplace.{BackgroundJobs,Consumers}/`
+15. `ticketing-platform-media/src/TP.Media.{BackgroundJobs,Consumers}/`
+16. `ticketing-platform-organizations/src/Organizations/TP.Organizations.{BackgroundJobs,Consumers}/`
+17. `ticketing-platform-pdf-generator/TP.PdfGenerator.Consumers/`
+18. `ticketing-platform-pricing/src/TP.Pricing.Consumers/`
+19. `ticketing-platform-reporting-api/src/TP.ReportingService.{BackgroundJobs,Consumers}/`
+20. `ticketing-platform-sales/src/TP.Sales.{BackgroundJobs,Consumers}/`
+21. `ticketing-platform-transfer/src/TP.Transfer.{BackgroundJobs,Consumers}/`
+22. `ecwid-integration/src/TP.Ecwid.{BackgroundJobs,Lambda.PaymentCallback,Lambda.PaymentCreate,Lambda.WebHooks.Anchanto,Lambda.WebHooks.Ecwid}/`
 
 **Bulk update script:**
 ```bash
@@ -500,32 +514,29 @@ S3 bucket names are globally unique. Cannot reuse names while old buckets exist.
 
 10. **Set temporary `production-eu` domain mapping in CDK** (allows full testing before touching live DNS):
 
-    Change `"production"` to `"production-eu"` in the env-to-domain mapping in these 6 files:
+    Change `"production"` to `"production-eu"` in the env-to-domain mapping in these 5 files:
 
     | File | Current | Change to |
     |------|---------|-----------|
     | `ticketing-platform-tools/TP.Tools.Infrastructure/Helpers/ServerlessApiStackHelper.cs:47` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
     | `ticketing-platform-gateway/src/Gateway.Cdk/Stacks/GatewayStack.cs:32` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
+    | `ticketing-platform-gateway/src/Gateway.Cdk/Stacks/GatewayStack.cs:107` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
     | `ticketing-platform-infrastructure/TP.Infrastructure.Cdk/Stacks/InternalHostedZoneStack.cs:15` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
     | `ticketing-platform-infrastructure/TP.Infrastructure.Cdk/Stacks/InternalCertificateStack.cs:15` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
     | `ticketing-platform-geidea/src/TP.Geidea.Cdk/Stacks/ApiStack.cs:32` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
-    | `ticketing-platform-xp-badges/src/TP.XpBadges.Cdk/Stacks/ApiStack.cs:29` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
 
-    Also fix the inconsistent domain mapping in these 2 files (they use `env` directly, producing `prod.tickets.mdlbeast.net` which has no matching Route53 zone):
+    **Note:** GatewayStack has two occurrences of the domain conditional (lines 32 and 107). Line 107 is in `CreateCustomDomain()` where it derives the SSM path for the certificate ARN. Both must be updated.
 
-    | File | Current | Change to |
-    |------|---------|-----------|
-    | `ticketing-platform-marketing-feeds/.../MarketingFeedsStack.cs:25` | `$"{env}.tickets.mdlbeast.net"` | `$"{(env == "prod" ? "production-eu" : env)}.tickets.mdlbeast.net"` |
-    | `ticketing-platform-bandsintown-integration/.../BandsintownIntegrationStack.cs:25` | `$"{env}.tickets.mdlbeast.net"` | `$"{(env == "prod" ? "production-eu" : env)}.tickets.mdlbeast.net"` |
+    **Note:** `xp-badges`, `bandsintown-integration`, and `marketing-feeds` are excluded from migration (deprecated services).
 
     **What this changes:** Only the domain names used for API Gateway custom domains, Route53 records, and ACM certificates. All other identifiers (secret paths `/prod/*`, SSM paths `/prod/tp/*`, stack names, Lambda names, queue names) remain unchanged.
+
+    **Important:** GatewayStack uses the **mapped** env name (e.g., `production-eu`) for its SSM certificate path: `/{envName}/tp/DomainCertificateArn`. This means the Gateway certificate SSM parameter must be stored at `/production-eu/tp/DomainCertificateArn` (not `/prod/tp/...`). All other services (Geidea, Ecwid) use the raw env for their SSM paths (`/prod/tp/{service}/DomainCertificateArn`).
 
     **What this produces:**
     - `api.production-eu.tickets.mdlbeast.net` (gateway)
     - `geidea.production-eu.tickets.mdlbeast.net` (geidea)
-    - `xp-badges.production-eu.tickets.mdlbeast.net` (xp-badges)
-    - `bandsintown.production-eu.tickets.mdlbeast.net` (bandsintown)
-    - `marketingfeed.production-eu.tickets.mdlbeast.net` (marketing feeds)
+    - `ecwid.production-eu.tickets.mdlbeast.net` (ecwid — via `ecwid-integration`)
     - `*.internal.production-eu.tickets.mdlbeast.net` (all internal services)
 
 11. **DO NOT merge yet.** Keep on feature branches until infrastructure is ready.
@@ -791,11 +802,9 @@ These bridge Terraform → CDK and must exist before any CDK deploy. The full SS
 | `/{env}/tp/SUBNET_3` | Terraform output | **YES** | |
 | `/rds/ticketing-cluster-identifier` | Aurora restore | **YES** | Set to restored cluster identifier (`ticketing-eu`) |
 | `/rds/ticketing-cluster-sg` | Terraform output | **YES** | RDS security group ID |
-| `/{env}/tp/DomainCertificateArn` | ACM (Phase 3.1) | **YES** | Gateway API certificate |
-| `/{env}/tp/geidea/DomainCertificateArn` | ACM (Phase 3.1) | **YES** | Geidea API certificate |
-| `/{env}/tp/xp-badges/DomainCertificateArn` | ACM (Phase 3.1) | **YES** | XP Badges API certificate |
-| `/{env}/tp/bandsintown-integration/DomainCertificateArn` | ACM (Phase 3.1) | **YES** | Bandsintown API certificate |
-| `/{env}/tp/marketing-feeds/DomainCertificateArn` | ACM (Phase 3.1) | **YES** | Marketing Feeds API certificate |
+| `/production-eu/tp/DomainCertificateArn` | ACM (Phase 3.2) | **YES** | Gateway API certificate. **Note:** GatewayStack maps `prod` → `production-eu` in its SSM path — this is NOT `/{env}/tp/...` |
+| `/{env}/tp/geidea/DomainCertificateArn` | ACM (Phase 3.2) | **YES** | Geidea API certificate |
+| `/{env}/tp/ecwid/DomainCertificateArn` | ACM (Phase 3.2) | **YES** | Ecwid API certificate |
 | `/{env}/tp/pdf/generator/STORAGE_BUCKET_NAME` | S3 bucket name | **YES** | Must match new `-eu` bucket name |
 | `/{env}/tp/SlackNotification/ErrorsWebhookUrl` | Slack workspace | **YES** | SecureString — retrieve from Slack |
 | `/{env}/tp/SlackNotification/OperationalErrorsWebhookUrl` | Slack workspace | **YES** | SecureString |
@@ -832,13 +841,13 @@ aws ssm put-parameter --name "/rds/ticketing-cluster-sg" \
 
 # Subnet IDs (from Terraform output — verify tag names match your Terraform config)
 SUBNET_1=$(aws ec2 describe-subnets $P \
-  --filters "Name=tag:Name,Values=lambda-subnet-1a-dev" \
+  --filters "Name=tag:Name,Values=lambda-subnet-1a-prod" \
   --query 'Subnets[0].SubnetId' --output text)
 SUBNET_2=$(aws ec2 describe-subnets $P \
-  --filters "Name=tag:Name,Values=lambda-subnet-1b-dev" \
+  --filters "Name=tag:Name,Values=lambda-subnet-1b-prod" \
   --query 'Subnets[0].SubnetId' --output text)
 SUBNET_3=$(aws ec2 describe-subnets $P \
-  --filters "Name=tag:Name,Values=lambda-subnet-1c-dev" \
+  --filters "Name=tag:Name,Values=lambda-subnet-1c-prod" \
   --query 'Subnets[0].SubnetId' --output text)
 
 for env in prod; do
@@ -865,7 +874,7 @@ done
 # bandsintown-integration, marketing-feeds) are created in Phase 3.1 after ACM issuance.
 ```
 
-**Verification (16 manual params expected for dev+sandbox):**
+**Verification (manual params expected for prod — cert params created later in Phase 3.2):**
 ```bash
 aws ssm get-parameters-by-path --path "/" --recursive \
   --profile AdministratorAccess-660748123249 --region eu-central-1 \
@@ -1044,7 +1053,7 @@ AWS_PROFILE=AdministratorAccess-660748123249 \
 - [ ] NAT Gateways operational with Elastic IPs
 - [ ] Route53 hosted zones imported (dev, sandbox) — no duplicates, same NS records as before
 - [ ] Aurora cluster restored from backup and available with 3 instances
-- [ ] Aurora Serverless v2 scaling configured (0.5-3 ACU)
+- [ ] Aurora Serverless v2 scaling configured (8-64 ACU for go-live; reduce to 1.5-64 after 72 hours)
 - [ ] Aurora imported into Terraform state — `terraform plan` shows no changes
 - [ ] RDS cluster/instance blocks uncommented in `rds.tf`
 - [ ] S3 data restored to new `-eu` buckets — object counts verified
@@ -1115,7 +1124,7 @@ aws route53 change-resource-record-sets --hosted-zone-id "$PARENT_ZONE_ID" \
 
 ### 3.2 Create ACM Certificates
 
-Six certificates needed before CDK stack deployment (5 manual + 1 auto-created by CDK). All certificates use the **temporary** `production-eu` domain.
+Four certificates needed before CDK stack deployment (3 manual + 1 auto-created by CDK). All certificates use the **temporary** `production-eu` domain.
 
 **DNS validation:** Each certificate requires a CNAME record in Route53 for validation. Create the record in the `production-eu.tickets.mdlbeast.net` zone (created in 3.1). Certificates typically validate within 5-10 minutes.
 
@@ -1166,25 +1175,19 @@ request_cert() {
     --type String --value "$CERT_ARN" $P
 }
 
-# 1. Gateway
-request_cert "api.production-eu.tickets.mdlbeast.net" "/prod/tp/DomainCertificateArn" "production-eu"
+# 1. Gateway — NOTE: SSM path uses mapped env name "production-eu", NOT "/prod/tp/"
+request_cert "api.production-eu.tickets.mdlbeast.net" "/production-eu/tp/DomainCertificateArn" "production-eu"
 
-# 2. Geidea
+# 2. Geidea — uses raw env "prod" in SSM path
 request_cert "geidea.production-eu.tickets.mdlbeast.net" "/prod/tp/geidea/DomainCertificateArn" "production-eu"
 
-# 3. XP Badges
-request_cert "xp-badges.production-eu.tickets.mdlbeast.net" "/prod/tp/xp-badges/DomainCertificateArn" "production-eu"
+# 3. Ecwid — uses raw env "prod" in SSM path
+request_cert "ecwid.production-eu.tickets.mdlbeast.net" "/prod/tp/ecwid/DomainCertificateArn" "production-eu"
 
-# 4. Bandsintown Integration
-request_cert "bandsintown.production-eu.tickets.mdlbeast.net" "/prod/tp/bandsintown-integration/DomainCertificateArn" "production-eu"
-
-# 5. Marketing Feeds
-request_cert "marketingfeed.production-eu.tickets.mdlbeast.net" "/prod/tp/marketing-feeds/DomainCertificateArn" "production-eu"
-
-# 6. Internal certificate — created by InternalCertificateStack in 3.2 (no manual action)
+# 4. Internal certificate — created by InternalCertificateStack in 3.3 (no manual action)
 #    Covers: internal.{env}.tickets.mdlbeast.net + *.internal.{env}.tickets.mdlbeast.net
 
-# Verify all certs are ISSUED (5 per env × 2 envs = 10 certs)
+# Verify all certs are ISSUED (3 manual certs)
 aws acm list-certificates $P \
   --query 'CertificateSummaryList[*].{Domain:DomainName,Status:Status}'
 ```
@@ -1225,16 +1228,16 @@ cdk deploy TP-ApiGatewayVpcEndpointStack --require-approval never
 # 9. RDS Proxy (needs VPC + RDS cluster + SSM params)
 cdk deploy TP-RdsProxyStack --require-approval never
 
-# 10. Slack notification (needs SSM webhook URLs)
-cdk deploy TP-SlackNotificationStack-prod --require-approval never
-
-# 11. XRay insight notification (needs EventBus + SSM webhooks)
+# 10. XRay insight notification (needs EventBus + SSM webhooks)
 cdk deploy TP-XRayInsightNotificationStack-prod --require-approval never
+
+# 11. Slack notification (needs SSM webhook URLs + depends on XRayInsightNotificationStack)
+cdk deploy TP-SlackNotificationStack-prod --require-approval never
 ```
 
 ### 3.4 Update Connection Strings & Region-Dependent Secrets
 
-**Prerequisite:** RDS Proxy deployed (step 9 of 3.2), SQS queues deployed (step 2 of 3.2). Must complete **before** Phase 3.4 — DbMigrator Lambdas load secrets at runtime to connect to the database.
+**Prerequisite:** RDS Proxy deployed (step 9 of 3.3), SQS queues deployed (step 2 of 3.3). Must complete **before** Phase 3.5 — DbMigrator Lambdas load secrets at runtime to connect to the database.
 
 ```bash
 P="--profile AdministratorAccess-660748123249 --region eu-central-1"
@@ -1269,55 +1272,65 @@ NEW_KMS_KEY=$(aws kms list-aliases $P \
 #   inventory, loyalty, marketplace, media, organizations, pricing,
 #   reporting, sales, transfer
 #
-# Connection string format: Host=<endpoint>;Database=<db>;Username=<user>;Password=<pass>
+# CONNECTION_STRINGS format (confirmed from backup secrets):
+#   JSON dict: {"PgSql":"User ID=...;Password=...;Host=...;Database=...;...", "ReadonlyPgSql":"..."}
+#   Uses "User ID=" (not "Username="), includes Timeout, Pooling, Application Name params
+#   ReadonlyPgSql uses the -ro- reader endpoint
 # Each service has its own database name within the shared Aurora cluster.
 
 for env in prod; do
   for svc in access-control catalogue customers dp extensions integration \
-    inventory loyalty marketplace media organizations pricing reporting sales transfer; do
+    inventory loyalty marketplace media organizations pricing reporting sales transfer ecwid; do
 
     # Read current secret, update region-dependent keys
     aws secretsmanager get-secret-value --secret-id "/$env/$svc" \
       $P --query 'SecretString' --output text | \
       python3 -c "
-import json, sys
+import json, sys, os, re
+
 secret = json.load(sys.stdin)
 
-# Update connection strings (use RDS Proxy endpoint)
-rds_endpoint = '${RDS_PROXY_ENDPOINT}'
-rds_user = '${RDS_USER}'
-rds_pass = '${RDS_PASS}'
-svc = '$svc'
+# New endpoint values from environment
+rds_proxy = os.environ.get('RDS_PROXY_ENDPOINT', '${RDS_PROXY_ENDPOINT}')
+rds_proxy_ro = os.environ.get('RDS_PROXY_RO_ENDPOINT', '${RDS_PROXY_RO_ENDPOINT}')
+new_aws_key = '${NEW_AWS_KEY}'
+new_aws_secret = '${NEW_AWS_SECRET}'
+new_kms_key = '${NEW_KMS_KEY}'
 
-# Map service name to database name
-db_map = {
-    'access-control': 'access_control', 'catalogue': 'catalogue',
-    'customers': 'customers', 'dp': 'distribution_portal',
-    'extensions': 'extensions', 'integration': 'integration',
-    'inventory': 'inventory', 'loyalty': 'loyalty',
-    'marketplace': 'marketplace', 'media': 'media',
-    'organizations': 'organizations', 'pricing': 'pricing',
-    'reporting': 'reporting', 'sales': 'sales', 'transfer': 'transfer'
-}
-db_name = db_map.get(svc, svc)
-conn_str = f'Host={rds_endpoint};Database={db_name};Username={rds_user};Password={rds_pass}'
+# Update CONNECTION_STRINGS — preserve JSON dict structure, replace Host= values
+for cs_key in ['CONNECTION_STRINGS', 'CONNECTION_STRINGS_Sales']:
+    if cs_key not in secret:
+        continue
+    try:
+        cs_dict = json.loads(secret[cs_key])
+        for ctx_key, conn_str in cs_dict.items():
+            # Replace Host= with new RDS Proxy endpoint
+            if 'Readonly' in ctx_key or 'readonly' in ctx_key:
+                conn_str = re.sub(r'Host=[^;]+', f'Host={rds_proxy_ro}', conn_str)
+            else:
+                conn_str = re.sub(r'Host=[^;]+', f'Host={rds_proxy}', conn_str)
+            cs_dict[ctx_key] = conn_str
+        secret[cs_key] = json.dumps(cs_dict)
+    except json.JSONDecodeError:
+        # If not JSON dict, replace as plain connection string
+        secret[cs_key] = re.sub(r'Host=[^;]+', f'Host={rds_proxy}', secret[cs_key])
 
-if 'CONNECTION_STRINGS' in secret:
-    secret['CONNECTION_STRINGS'] = conn_str
-if 'CONNECTION_STRINGS_Sales' in secret:
-    secret['CONNECTION_STRINGS_Sales'] = conn_str
+# Update SQS queue URLs (replace me-south-1 with eu-central-1, account stays same)
+for k in list(secret.keys()):
+    if 'SQS' in k and 'me-south-1' in str(secret[k]):
+        secret[k] = secret[k].replace('me-south-1', 'eu-central-1')
 
 # Update IAM credentials
 for k in ['AWS_ACCESS_KEY', 'STORAGE_ACCESS_KEY']:
     if k in secret:
-        secret[k] = '${NEW_AWS_KEY}'
+        secret[k] = new_aws_key
 for k in ['AWS_ACCESS_SECRET', 'STORAGE_SECRET_KEY']:
     if k in secret:
-        secret[k] = '${NEW_AWS_SECRET}'
+        secret[k] = new_aws_secret
 
 # Update KMS key
 if 'KMS_KEY_ID' in secret:
-    secret['KMS_KEY_ID'] = '${NEW_KMS_KEY}'
+    secret['KMS_KEY_ID'] = new_kms_key
 
 print(json.dumps(secret))
 " | aws secretsmanager update-secret --secret-id "/$env/$svc" \
@@ -1378,9 +1391,11 @@ for env in prod; do
 done
 ```
 
-**Note:** The database name mapping (`db_map`) above is an estimate. Verify actual database names by querying the restored Aurora cluster:
+**Note:** The script preserves each service's existing connection string structure (JSON dict with `PgSql`/`ReadonlyPgSql` keys) and only replaces the `Host=` value. Database names are NOT changed — they stay as-is from the backup (e.g., `inventoryprod` for inventory, `extension` for extensions). Verify database names exist in the restored Aurora cluster:
 ```bash
 psql -h $RDS_PROXY_ENDPOINT -U $RDS_USER -c "\l" | grep -v template
+# Expected databases from backup: sales, inventoryprod, extension, media, geidea,
+# integration, loyalty, marketplace, organizations, pricing, plus others from failed backups
 ```
 
 ### 3.5 Per-Service CDK Deployment Matrix
@@ -1421,7 +1436,8 @@ export CDK_DEFAULT_REGION=eu-central-1 ENV_NAME=prod
 | 20 | 3 | **access-control** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
 | 21 | 3 | **transfer** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
 | 22 | 3 | **geidea** | ConsumersStack → BackgroundJobsStack → ApiStack (HTTP API v2) | NO |
-| 23 | **LAST** | **gateway** | GatewayStack | NO |
+| 23 | 3 | **ecwid-integration** | ApiStack → BackgroundJobsStack | NO |
+| 24 | **LAST** | **gateway** | GatewayStack | NO |
 
 **For services with DbMigrator:**
 ```bash
@@ -1429,11 +1445,11 @@ P="--profile AdministratorAccess-660748123249 --region eu-central-1"
 
 cd ticketing-platform-<service>/src/TP.<Service>.Cdk
 
-# 1. Deploy DbMigrator stack (CDK uses AWS_PROFILE env var set in 3.2)
-cdk deploy TP-DbMigratorStack-<service>-dev --require-approval never
+# 1. Deploy DbMigrator stack (CDK uses AWS_PROFILE env var set in 3.3)
+cdk deploy TP-DbMigratorStack-<service>-prod --require-approval never
 
 # 2. Run migration
-aws lambda invoke --function-name "<service>-db-migrator-lambda-dev" \
+aws lambda invoke --function-name "<service>-db-migrator-lambda-prod" \
   --payload '{}' $P /dev/null
 
 # 3. Create log groups (avoids cold-start log group creation delay)
@@ -1482,24 +1498,20 @@ Test everything via `*.production-eu.tickets.mdlbeast.net` — no live DNS is af
 
 **Duration:** 0.5-1 day | **Risk:** CRITICAL | **This is the point of no return for DNS**
 
-After Phase 3 validation passes, cut over from the temporary `production-eu` domain to the real `production` domain. Only 6 CDK stacks need redeployment — all backend infrastructure remains unchanged.
+After Phase 3 validation passes, cut over from the temporary `production-eu` domain to the real `production` domain. Only the public-facing CDK stacks need redeployment — all backend infrastructure remains unchanged.
 
 ### 4.1 Revert Temporary Domain Mapping in CDK
 
-Revert the 8 files changed in Phase 1 Task 10:
+Revert the 6 files changed in Phase 1 Task 10:
 
 | File | Change back to |
 |------|---------------|
 | `ServerlessApiStackHelper.cs:47` | `env == "prod" ? "production" : env` |
 | `GatewayStack.cs:32` | `env == "prod" ? "production" : env` |
+| `GatewayStack.cs:107` | `env == "prod" ? "production" : env` |
 | `InternalHostedZoneStack.cs:15` | `env == "prod" ? "production" : env` |
 | `InternalCertificateStack.cs:15` | `env == "prod" ? "production" : env` |
 | `Geidea ApiStack.cs:32` | `env == "prod" ? "production" : env` |
-| `XpBadges ApiStack.cs:29` | `env == "prod" ? "production" : env` |
-| `MarketingFeedsStack.cs:25` | `$"{(env == "prod" ? "production" : env)}.tickets.mdlbeast.net"` |
-| `BandsintownIntegrationStack.cs:25` | `$"{(env == "prod" ? "production" : env)}.tickets.mdlbeast.net"` |
-
-**Note:** MarketingFeeds and Bandsintown now use `"production"` (fixed inconsistency — previously used `env` directly producing `prod.tickets.mdlbeast.net` which had no Route53 zone).
 
 ### 4.2 Create ACM Certificates for Real Domain
 
@@ -1509,11 +1521,10 @@ P="--profile AdministratorAccess-660748123249 --region eu-central-1"
 # Same request_cert helper as Phase 3.2, but with production domain
 # Zone for validation: production.tickets.mdlbeast.net (imported in Phase 2.4)
 
-request_cert "api.production.tickets.mdlbeast.net" "/prod/tp/DomainCertificateArn" "production"
+# Gateway — SSM path uses mapped env name "production", NOT "/prod/tp/"
+request_cert "api.production.tickets.mdlbeast.net" "/production/tp/DomainCertificateArn" "production"
 request_cert "geidea.production.tickets.mdlbeast.net" "/prod/tp/geidea/DomainCertificateArn" "production"
-request_cert "xp-badges.production.tickets.mdlbeast.net" "/prod/tp/xp-badges/DomainCertificateArn" "production"
-request_cert "bandsintown.production.tickets.mdlbeast.net" "/prod/tp/bandsintown-integration/DomainCertificateArn" "production"
-request_cert "marketingfeed.production.tickets.mdlbeast.net" "/prod/tp/marketing-feeds/DomainCertificateArn" "production"
+request_cert "ecwid.production.tickets.mdlbeast.net" "/prod/tp/ecwid/DomainCertificateArn" "production"
 
 # Verify all certs ISSUED
 aws acm list-certificates $P \
@@ -1547,15 +1558,9 @@ cdk deploy GatewayStack --require-approval never
 cd ticketing-platform-geidea/src/TP.Geidea.Cdk
 cdk deploy TP-Geidea-ApiStack-prod --require-approval never
 
-# 5. XP Badges (creates xp-badges.production.tickets.mdlbeast.net)
-cd ticketing-platform-xp-badges/src/TP.XpBadges.Cdk
-cdk deploy TP-XpBadges-ApiStack-prod --require-approval never
-
-# 6. Bandsintown + Marketing Feeds (if deployed in prod)
-cd ticketing-platform-bandsintown-integration/TP.Bandsintown.Integration.Cdk
-cdk deploy TP-BandsintownIntegration-Stack-prod --require-approval never
-cd ticketing-platform-marketing-feeds/...
-cdk deploy TP-MarketingFeeds-Stack-prod --require-approval never
+# 5. Ecwid (creates ecwid.production.tickets.mdlbeast.net)
+cd ecwid-integration/src/TP.Ecwid.Cdk
+cdk deploy TP-ApiStack-ecwid-prod --require-approval never
 ```
 
 **What happens:** CDK updates API Gateway custom domains from `*.production-eu.tickets.mdlbeast.net` to `*.production.tickets.mdlbeast.net` and creates A records in the existing `production.tickets.mdlbeast.net` hosted zone. DNS goes live for production.
@@ -1591,9 +1596,10 @@ repos=(
   ticketing-platform-terraform-dev ticketing-platform-terraform-prod
   ticketing-platform-mobile-scanner ticketing-platform-templates-ci-cd
   ticketing-platform-automations ticketing-platform-customer-service
-  ticketing-platform-shared
+  ticketing-platform-shared ecwid-integration
   ticketing-platform-configmap-dev ticketing-platform-configmap-sandbox
 )
+# NOTE: xp-badges, bandsintown-integration, marketing-feeds excluded (deprecated services)
 
 for repo in "${repos[@]}"; do
   gh secret set AWS_DEFAULT_REGION --body "eu-central-1" --repo "mdlbeasts/$repo"
@@ -1846,5 +1852,6 @@ Do this after Phase 3.7 (dev/sandbox) and Phase 5.7 (prod).
 *Revised: 2026-03-24 — Comprehensive secrets/SSM inventory (13 failed backups identified), Route53 zone import (no duplicate zones), Aurora Terraform import, 5 ACM certificates (was 2), detailed connection string procedure, tiered service deployment order, expanded risk matrix*
 *Revised: 2026-03-24 — Fixed Terraform/RDS ordering (comment out cluster → restore from backup → import), added --profile to all AWS CLI commands, added ACM DNS validation procedure, fixed dependency chain (terraform secret → terraform apply → backup restore → import), added Phase 2 IAM credential generation checkpoint*
 *Revised: 2026-03-24 — Restructured to production-first with temporary `production-eu.tickets.mdlbeast.net` domain. New phase order: Phase 1 (code) → Phase 2 (prod foundation) → Phase 3 (prod services under temp domain) → Phase 4 (DNS cutover) → Phase 5 (dev/sandbox fresh rebuild). Fixed MarketingFeeds/Bandsintown domain bug (used `prod` instead of `production`). Added temp zone cleanup to post-migration.*
+*Revised: 2026-03-24 — Production code validation: Fixed Gateway SSM cert path (uses `/production-eu/tp/` not `/prod/tp/`), added GatewayStack:107 to domain mapping updates, added ecwid-integration throughout, excluded xp-badges/bandsintown/marketing-feeds (deprecated), fixed CONNECTION_STRINGS format (JSON dict, not plain string), corrected database names from backup (inventoryprod, extension), updated aws-lambda-tools count to 42, added S3 bucket name vars to env-var updates, swapped Slack/XRay deployment order, fixed Phase 3.5 `-dev` → `-prod` suffix, fixed Phase 2.5 subnet tags (dev → prod), added customer-service/automations to Category 2*
 *Based on research in: `.planning/research/{ARCHITECTURE,PITFALLS,STACK}.md`*
 *Review document: `.personal/tasks/2026-03-05_aws-region-migration/review.md`*
