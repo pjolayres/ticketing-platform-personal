@@ -25,45 +25,38 @@
 - [S3 Bucket Naming Strategy](#s3-bucket-naming-strategy)
 - [Phase 1: Code Preparation (No Infrastructure Changes)](#phase-1-code-preparation-no-infrastructure-changes)
   - [Tasks](#tasks)
-- [Phase 2: Dev+Sandbox Foundation \& Data Restore](#phase-2-devsandbox-foundation--data-restore)
+- [Phase 2: Production Foundation \& Data Restore](#phase-2-production-foundation--data-restore)
   - [2.1 Service Quota Pre-Checks](#21-service-quota-pre-checks)
   - [2.2 Create Terraform State Bucket](#22-create-terraform-state-bucket)
   - [2.3 Recreate Secrets Manager Entries](#23-recreate-secrets-manager-entries)
-  - [2.4 Terraform Apply](#24-terraform-apply)
+  - [2.4 Terraform Apply (WITHOUT RDS Cluster)](#24-terraform-apply-without-rds-cluster)
   - [2.5 Populate Manual SSM Parameters](#25-populate-manual-ssm-parameters)
   - [2.6 Restore Aurora from AWS Backup](#26-restore-aurora-from-aws-backup)
   - [2.7 Restore S3 Data from AWS Backup](#27-restore-s3-data-from-aws-backup)
   - [2.8 CDK Bootstrap](#28-cdk-bootstrap)
   - [Phase 2 Verification Checklist](#phase-2-verification-checklist)
-- [Phase 3: Dev+Sandbox Services \& Validation](#phase-3-devsandbox-services--validation)
-  - [3.1 Create ACM Certificates](#31-create-acm-certificates)
-  - [3.2 Infrastructure CDK (11 Stacks — Strict Order)](#32-infrastructure-cdk-11-stacks--strict-order)
-  - [3.3 Update Connection Strings](#33-update-connection-strings)
-  - [3.4 Per-Service CDK Deployment Matrix](#34-per-service-cdk-deployment-matrix)
-  - [3.5 Update GitHub Secrets \& Variables](#35-update-github-secrets--variables)
-  - [3.6 Merge Feature Branches \& Deploy Frontends](#36-merge-feature-branches--deploy-frontends)
-  - [3.7 End-to-End Validation](#37-end-to-end-validation)
+- [Phase 3: Production Services under Temporary Domain](#phase-3-production-services-under-temporary-domain)
+  - [3.1 Create Temporary Route53 Hosted Zone](#31-create-temporary-route53-hosted-zone)
+  - [3.2 Create ACM Certificates](#32-create-acm-certificates)
+  - [3.3 Infrastructure CDK (11 Stacks — Strict Order)](#33-infrastructure-cdk-11-stacks--strict-order)
+  - [3.4 Update Connection Strings \& Region-Dependent Secrets](#34-update-connection-strings--region-dependent-secrets)
+  - [3.5 Per-Service CDK Deployment Matrix](#35-per-service-cdk-deployment-matrix)
+  - [3.6 End-to-End Validation (Temporary Domain)](#36-end-to-end-validation-temporary-domain)
   - [Phase 3 Verification Checklist](#phase-3-verification-checklist)
-- [Phase 4: Production Foundation \& Data Restore](#phase-4-production-foundation--data-restore)
-  - [4.1 Service Quota Pre-Checks (Prod)](#41-service-quota-pre-checks-prod)
-  - [4.2 State Bucket (Prod)](#42-state-bucket-prod)
-  - [4.3 Security Remediation](#43-security-remediation)
-  - [4.4 Recreate Prod Secrets](#44-recreate-prod-secrets)
-  - [4.5 Terraform Apply (Prod)](#45-terraform-apply-prod)
-  - [4.6 Populate Prod SSM Parameters](#46-populate-prod-ssm-parameters)
-  - [4.7 Restore Aurora from AWS Backup (Prod)](#47-restore-aurora-from-aws-backup-prod)
-  - [4.8 Restore S3 Data (Prod)](#48-restore-s3-data-prod)
-  - [4.9 CDK Bootstrap (Prod)](#49-cdk-bootstrap-prod)
-- [Phase 5: Production Services \& Go-Live](#phase-5-production-services--go-live)
-  - [5.1 Create ACM Certificates (Prod)](#51-create-acm-certificates-prod)
-  - [5.2 Deploy All CDK Stacks (Prod)](#52-deploy-all-cdk-stacks-prod)
-  - [5.3 Update Connection Strings (Prod)](#53-update-connection-strings-prod)
-  - [5.4 Per-Service CDK (Prod)](#54-per-service-cdk-prod)
-  - [5.5 Update GitHub Secrets (Prod)](#55-update-github-secrets-prod)
-  - [5.6 Merge to Production \& Deploy Frontends](#56-merge-to-production--deploy-frontends)
-  - [5.7 End-to-End Validation (Prod)](#57-end-to-end-validation-prod)
-  - [5.8 Post-Go-Live Monitoring (72 hours)](#58-post-go-live-monitoring-72-hours)
+- [Phase 4: DNS Cutover to Production Domain](#phase-4-dns-cutover-to-production-domain)
+  - [4.1 Revert Temporary Domain Mapping in CDK](#41-revert-temporary-domain-mapping-in-cdk)
+  - [4.2 Create ACM Certificates for Real Domain](#42-create-acm-certificates-for-real-domain)
+  - [4.3 Redeploy Public-Facing Stacks](#43-redeploy-public-facing-stacks)
+  - [4.4 Update GitHub Secrets \& Variables](#44-update-github-secrets--variables)
+  - [4.5 Merge to Production \& Deploy Frontends](#45-merge-to-production--deploy-frontends)
+  - [4.6 End-to-End Validation (Production Domain)](#46-end-to-end-validation-production-domain)
+  - [4.7 Post-Go-Live Monitoring (72 hours)](#47-post-go-live-monitoring-72-hours)
+- [Phase 5: Dev+Sandbox Rebuild (Fresh)](#phase-5-devsandbox-rebuild-fresh)
+  - [5.1 Overview](#51-overview)
+  - [5.2 Foundation (Account 307824719505)](#52-foundation-account-307824719505)
+  - [5.3 Services \& Validation](#53-services--validation)
 - [Post-Migration Tasks](#post-migration-tasks)
+  - [Temporary Domain Cleanup](#temporary-domain-cleanup)
   - [Extension Lambda Redeployment](#extension-lambda-redeployment)
 - [Post-Migration Cleanup](#post-migration-cleanup)
   - [Data Stores (after 7-day stability)](#data-stores-after-7-day-stability)
@@ -90,9 +83,9 @@ The MDLBEAST Ticketing Platform must migrate from AWS me-south-1 (Bahrain) to eu
 
 **Supporting research:** `.planning/research/ARCHITECTURE.md`, `PITFALLS.md`, `STACK.md`
 
-**Migration order:** Dev+Sandbox (account `307824719505`) first → validate → Production (account `660748123249`)
+**Migration order:** Production (account `660748123249`) first → validate under temporary domain → DNS cutover → Dev+Sandbox rebuild
 
-**Migration strategy:** Greenfield infrastructure in eu-central-1 (new Terraform state, new CDK stacks), with Aurora restored from AWS Backup cross-region copies. Lambda-only deployment (EKS deprecated).
+**Migration strategy:** Greenfield infrastructure in eu-central-1 (new Terraform state, new CDK stacks), with Aurora and S3 restored from AWS Backup cross-region copies. Lambda-only deployment (EKS deprecated). Production deploys under temporary subdomain `production-eu.tickets.mdlbeast.net` for safe testing before DNS cutover.
 
 ---
 
@@ -100,12 +93,14 @@ The MDLBEAST Ticketing Platform must migrate from AWS me-south-1 (Bahrain) to eu
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
+| Migration order | **Production first** | Only prod has AWS Backup enabled (Aurora + S3). Dev/sandbox have no backups — must be rebuilt from scratch. Prod is the revenue-generating environment. |
+| Temporary domain | **`production-eu.tickets.mdlbeast.net`** | Deploy prod under temporary subdomain for full E2E testing. Cutover to real `production.tickets.mdlbeast.net` domain only after validation. Avoids touching live DNS until ready. |
 | EKS/Kubernetes | **Deprecate — Lambda-only** | Services already run as Lambda functions. EKS adds operational complexity with no unique value. |
 | Self-hosted runners | **Remove — use GitHub-hosted runners** | Runners only existed for kubectl/EKS deployments. Lambda CDK deploys use `ubuntu-latest`. |
 | Redis/ElastiCache | **Remove — do not recreate** | Confirmed zombie infrastructure: zero connections, code uses DynamoDB + in-memory caching instead. |
 | OpenSearch/Elasticsearch | **Remove — do not recreate** | Confirmed ghost config: Serilog has no Elasticsearch sink installed. Config references exist but no data flows. |
 | Data migration strategy | **Restore from AWS Backup** | me-south-1 is down; live replication impossible. Cross-region backup copies exist in eu-central-1. |
-| `demo` environment | **Defer** | Not critical path. Address after dev/sandbox/prod are live. |
+| `demo` environment | **Defer** | Not critical path. Address after prod and dev/sandbox are live. |
 
 ---
 
@@ -296,8 +291,8 @@ These contain me-south-1 RDS hosts, SQS URLs, OpenSearch URIs — update after n
 
 | File | Line | Content |
 |------|------|---------|
-| `deploy.yml:26` | `aws ecr get-login-password --region me-south-1 \| helm registry login ... 307824719505.dkr.ecr.me-south-1.amazonaws.com` |
-| `deploy.yml:28` | `helm push ... oci://307824719505.dkr.ecr.me-south-1.amazonaws.com/` |
+| `deploy.yml:26` | `aws ecr get-login-password --region me-south-1 \| helm registry login ... 660748123249.dkr.ecr.me-south-1.amazonaws.com` |
+| `deploy.yml:28` | `helm push ... oci://660748123249.dkr.ecr.me-south-1.amazonaws.com/` |
 | `deploy.yml:46` | `aws ecr get-login-password --region me-south-1 \| helm registry login ... 058264295036.dkr.ecr.me-south-1.amazonaws.com` |
 | `deploy.yml:48` | `helm push ... oci://058264295036.dkr.ecr.me-south-1.amazonaws.com/` |
 | `deploy.yml:67` | `aws ecr get-login-password --region me-south-1 \| helm registry login ... 660748123249.dkr.ecr.me-south-1.amazonaws.com` |
@@ -498,23 +493,66 @@ S3 bucket names are globally unique. Cannot reuse names while old buckets exist.
      | grep -v "configmap-" | grep -v "README"
    ```
 
-9. **DO NOT merge yet.** Keep on feature branches until infrastructure is ready.
+9. **Temporarily exclude RDS cluster from Terraform** (prevents empty cluster creation — will restore from backup instead):
+   - In `ticketing-platform-terraform-dev/dev/rds.tf`: comment out `aws_rds_cluster "ticketing"` and `aws_rds_cluster_instance "ticketing"` resource blocks. **Keep** the `aws_db_subnet_group`, `aws_security_group`, and any `aws_security_group_rule` resources — these are needed for the backup restore.
+   - In `ticketing-platform-terraform-prod/prod/rds.tf`: same — comment out cluster + instance blocks, keep subnet group + security group.
+   - **Why:** `terraform apply` would create an empty RDS cluster. AWS Backup restore creates a *separate* cluster (you cannot restore into an existing cluster). Commenting out avoids the conflict. After backup restore, we `terraform import` the restored cluster, then uncomment the resources.
+
+10. **Set temporary `production-eu` domain mapping in CDK** (allows full testing before touching live DNS):
+
+    Change `"production"` to `"production-eu"` in the env-to-domain mapping in these 6 files:
+
+    | File | Current | Change to |
+    |------|---------|-----------|
+    | `ticketing-platform-tools/TP.Tools.Infrastructure/Helpers/ServerlessApiStackHelper.cs:47` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
+    | `ticketing-platform-gateway/src/Gateway.Cdk/Stacks/GatewayStack.cs:32` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
+    | `ticketing-platform-infrastructure/TP.Infrastructure.Cdk/Stacks/InternalHostedZoneStack.cs:15` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
+    | `ticketing-platform-infrastructure/TP.Infrastructure.Cdk/Stacks/InternalCertificateStack.cs:15` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
+    | `ticketing-platform-geidea/src/TP.Geidea.Cdk/Stacks/ApiStack.cs:32` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
+    | `ticketing-platform-xp-badges/src/TP.XpBadges.Cdk/Stacks/ApiStack.cs:29` | `env == "prod" ? "production" : env` | `env == "prod" ? "production-eu" : env` |
+
+    Also fix the inconsistent domain mapping in these 2 files (they use `env` directly, producing `prod.tickets.mdlbeast.net` which has no matching Route53 zone):
+
+    | File | Current | Change to |
+    |------|---------|-----------|
+    | `ticketing-platform-marketing-feeds/.../MarketingFeedsStack.cs:25` | `$"{env}.tickets.mdlbeast.net"` | `$"{(env == "prod" ? "production-eu" : env)}.tickets.mdlbeast.net"` |
+    | `ticketing-platform-bandsintown-integration/.../BandsintownIntegrationStack.cs:25` | `$"{env}.tickets.mdlbeast.net"` | `$"{(env == "prod" ? "production-eu" : env)}.tickets.mdlbeast.net"` |
+
+    **What this changes:** Only the domain names used for API Gateway custom domains, Route53 records, and ACM certificates. All other identifiers (secret paths `/prod/*`, SSM paths `/prod/tp/*`, stack names, Lambda names, queue names) remain unchanged.
+
+    **What this produces:**
+    - `api.production-eu.tickets.mdlbeast.net` (gateway)
+    - `geidea.production-eu.tickets.mdlbeast.net` (geidea)
+    - `xp-badges.production-eu.tickets.mdlbeast.net` (xp-badges)
+    - `bandsintown.production-eu.tickets.mdlbeast.net` (bandsintown)
+    - `marketingfeed.production-eu.tickets.mdlbeast.net` (marketing feeds)
+    - `*.internal.production-eu.tickets.mdlbeast.net` (all internal services)
+
+11. **DO NOT merge yet.** Keep on feature branches until infrastructure is ready.
 
 ---
 
-## Phase 2: Dev+Sandbox Foundation & Data Restore
+## Phase 2: Production Foundation & Data Restore
 
-**Duration:** 2-3 days | **Risk:** MEDIUM | **Account:** `307824719505`
+**Duration:** 2-3 days | **Risk:** HIGH | **Account:** `660748123249`
+
+**AWS CLI profile for all commands in this phase:**
+```bash
+export AWS_PROFILE=AdministratorAccess-660748123249
+export AWS_REGION=eu-central-1
+```
 
 ### 2.1 Service Quota Pre-Checks
 
 ```bash
-# Check eu-central-1 quotas
-aws service-quotas list-service-quotas --service-code lambda --region eu-central-1 \
+aws service-quotas list-service-quotas --service-code lambda \
+  --profile AdministratorAccess-660748123249 --region eu-central-1 \
   --query 'Quotas[?QuotaName==`Concurrent executions`].Value'
-aws service-quotas list-service-quotas --service-code vpc --region eu-central-1 \
+aws service-quotas list-service-quotas --service-code vpc \
+  --profile AdministratorAccess-660748123249 --region eu-central-1 \
   --query 'Quotas[?contains(QuotaName,`NAT`)].{Name:QuotaName,Value:Value}'
-aws service-quotas list-service-quotas --service-code rds --region eu-central-1 \
+aws service-quotas list-service-quotas --service-code rds \
+  --profile AdministratorAccess-660748123249 --region eu-central-1 \
   --query 'Quotas[?contains(QuotaName,`cluster`)].{Name:QuotaName,Value:Value}'
 
 # Request increases if needed before proceeding
@@ -523,223 +561,464 @@ aws service-quotas list-service-quotas --service-code rds --region eu-central-1 
 ### 2.2 Create Terraform State Bucket
 
 ```bash
-aws s3 mb s3://ticketing-terraform-dev-eu --region eu-central-1
-aws s3api put-bucket-versioning --bucket ticketing-terraform-dev-eu \
-  --versioning-configuration Status=Enabled --region eu-central-1
-aws s3api put-bucket-encryption --bucket ticketing-terraform-dev-eu \
+aws s3 mb s3://ticketing-terraform-prod-eu \
+  --profile AdministratorAccess-660748123249 --region eu-central-1
+aws s3api put-bucket-versioning --bucket ticketing-terraform-prod-eu \
+  --versioning-configuration Status=Enabled \
+  --profile AdministratorAccess-660748123249 --region eu-central-1
+aws s3api put-bucket-encryption --bucket ticketing-terraform-prod-eu \
   --server-side-encryption-configuration \
   '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}' \
-  --region eu-central-1
+  --profile AdministratorAccess-660748123249 --region eu-central-1
 ```
 
 ### 2.3 Recreate Secrets Manager Entries
 
-Since me-south-1 is down, secrets cannot be replicated. They must be recreated from AWS Backup or documentation.
+Since me-south-1 is down, secrets cannot be replicated. Local backups exist in `backup-secrets/` but **13 of 25 secrets failed retrieval** (region was already down). Each service loads its secret at Lambda cold-start via `SecretManagerHelper.LoadSecretsToEnvironmentAsync("/{env}/{service}")`.
 
+**Secret backup status and required actions:**
+
+| Secret Path | Backup Status | Action |
+|-------------|--------------|--------|
+| `/{env}/access-control` | **FAILED** | Reconstruct from password manager / team knowledge |
+| `/{env}/automations` | **FAILED** | Reconstruct from password manager / team knowledge |
+| `/{env}/catalogue` | **FAILED** | Reconstruct from password manager / team knowledge |
+| `/{env}/customers` | **FAILED** | Reconstruct from password manager / team knowledge |
+| `/{env}/dp` | **FAILED** | Reconstruct from password manager / team knowledge |
+| `/{env}/ecwid` | **FAILED** | Reconstruct from password manager / team knowledge |
+| `/{env}/geidea` | **FAILED** | Reconstruct from password manager / team knowledge |
+| `/{env}/media` | **FAILED** | Reconstruct from password manager / team knowledge |
+| `/{env}/organizations` | **FAILED** | Reconstruct from password manager / team knowledge |
+| `/{env}/reporting` | **FAILED** | Reconstruct from password manager / team knowledge |
+| `/{env}/transfer` | **FAILED** | Reconstruct from password manager / team knowledge |
+| `devops` | **FAILED** | Reconstruct from password manager / team knowledge |
+| `terraform` | **FAILED** | Reconstruct — needs `rds_pass` (from `/rds/ticketing-cluster` backup) |
+| `/{env}/extensions` | OK | Copy from backup — update region-dependent keys (see below) |
+| `/{env}/gateway` | OK | Copy from backup — update region-dependent keys |
+| `/{env}/integration` | OK | Copy from backup — update region-dependent keys |
+| `/{env}/inventory` | OK | Copy from backup — update region-dependent keys |
+| `/{env}/loyalty` | OK | Copy from backup — update region-dependent keys |
+| `/{env}/marketplace` | OK | Copy from backup — update region-dependent keys |
+| `/{env}/pricing` | OK | Copy from backup — update region-dependent keys |
+| `/{env}/sales` | OK | Copy from backup — update region-dependent keys |
+| `/{env}/xp-badges` | OK | Copy as-is (only `GOOGLE_SHEETS_PRIVATE_KEY` — region-independent) |
+| `/rds/ticketing-cluster` | OK | Update `host` to new Aurora/RDS Proxy endpoint |
+| `prod/data` | OK | Copy as-is (Google service account — region-independent) |
+
+**Keys that MUST change** in backed-up secrets (new region = new resources):
+- `CONNECTION_STRINGS` / `CONNECTION_STRINGS_Sales` — new RDS Proxy endpoint (set in Phase 3.3)
+- `SQS_QUEUE_URL` / `EXTENSION_DEPLOYER_SQS_QUEUE_URL` / `EXTENSION_EXECUTOR_SQS_QUEUE_URL` — new queue URLs (set in Phase 3.3)
+- `KMS_KEY_ID` — new KMS key ARN from Terraform output
+- `AWS_ACCESS_KEY` / `AWS_ACCESS_SECRET` / `STORAGE_ACCESS_KEY` / `STORAGE_SECRET_KEY` — new IAM user credentials from Terraform CICD user
+
+**Keys to DELETE** from all secrets (dead infrastructure):
+- `Logging__Elasticsearch__Uri` / `Logging__Elasticsearch__Username` / `Logging__Elasticsearch__Password`
+- `Redis__Host` / `Redis__Password`
+
+**Keys that are region-independent** (copy as-is from backup):
+- Third-party API keys: `Tabby__*`, `Checkout__*`, `SEATSIO_API_KEY`, `TALON_*`, `CheckoutComAuthorizationKey`, `WHATSAPP_*`, `EMAIL_SERVICE_*`, `WRSTBND_*`, `DiscountServiceToken`, `BasicAuthKey`, `TabbyAuthKey`, `ChekoutAuthKey`
+- Config values: `UNSECURE_TEST_CODE`, `DISTRIBUTION_PORTAL_LINK`, `EXCHANGE_RATE_*`, `ENABLE_PERFORMANCE_METRICS`, `RestrictedViewJob__*`, `MDLBEAST_*`, `WHATSAPP_BOT_TEMPLATE_ID`
+
+**Step 1: Create the `terraform` secret FIRST** (required before `terraform apply` in Phase 2.4 — Terraform reads `rds_pass` from this secret at plan time):
 ```bash
-# Option A: If AWS Backup includes Secrets Manager
-# List available backup recovery points for Secrets Manager in eu-central-1
-aws backup list-recovery-points-by-resource-type \
-  --resource-type "AWS::SecretsManager::Secret" \
-  --region eu-central-1
+# Get RDS password from the successfully backed-up /rds/ticketing-cluster secret
+RDS_PASS=$(python3 -c "
+import json
+with open('backup-secrets/__rds__ticketing-cluster.json') as f:
+    d = json.load(f)
+inner = json.loads(d['SecretString'])
+print(inner['password'])
+")
 
-# Option B: Recreate manually from documentation/password manager
-# For each service, create the required secrets:
-for env in dev sandbox; do
-  # Example: create service secrets
-  aws secretsmanager create-secret --name "/$env/sales" \
-    --secret-string '{"CONNECTION_STRING":"...","API_KEY":"..."}' \
-    --region eu-central-1
+aws secretsmanager create-secret --name "terraform" \
+  --secret-string "{\"rds_pass\":\"${RDS_PASS}\"}" \
+  --profile AdministratorAccess-660748123249 --region eu-central-1
+```
+
+**Step 2: Create RDS cluster secret** (host is placeholder — updated after Aurora restore in 2.6):
+```bash
+# Extract username/password from backup
+RDS_USER=$(python3 -c "
+import json
+with open('backup-secrets/__rds__ticketing-cluster.json') as f:
+    d = json.load(f)
+print(json.loads(d['SecretString'])['username'])
+")
+
+aws secretsmanager create-secret --name "/rds/ticketing-cluster" \
+  --secret-string "{
+    \"username\": \"${RDS_USER}\",
+    \"password\": \"${RDS_PASS}\",
+    \"engine\": \"aurora-postgresql\",
+    \"host\": \"PLACEHOLDER_UPDATE_AFTER_RESTORE\",
+    \"port\": \"5432\",
+    \"dbClusterIdentifier\": \"ticketing-eu\"
+  }" --profile AdministratorAccess-660748123249 --region eu-central-1
+```
+
+**Step 3: Create secrets from successful backups** (placeholder values for region-dependent keys):
+```bash
+for env in prod; do
+  for svc in extensions gateway integration inventory loyalty marketplace pricing sales xp-badges; do
+    # Read backed-up secret, strip Elasticsearch/Redis keys
+    SECRET_JSON=$(python3 -c "
+import json
+with open('backup-secrets/__prod__${svc}.json') as f:
+    d = json.load(f)
+inner = json.loads(d['SecretString'])
+for k in list(inner.keys()):
+    if 'Elasticsearch' in k or 'Redis' in k:
+        del inner[k]
+# Mark region-dependent keys as needing update
+for k in ['CONNECTION_STRINGS','CONNECTION_STRINGS_Sales','SQS_QUEUE_URL',
+          'EXTENSION_DEPLOYER_SQS_QUEUE_URL','EXTENSION_EXECUTOR_SQS_QUEUE_URL']:
+    if k in inner:
+        inner[k] = 'PLACEHOLDER_UPDATE_IN_PHASE_3.3'
+print(json.dumps(inner))
+")
+    aws secretsmanager create-secret --name "/$env/$svc" \
+      --secret-string "$SECRET_JSON" \
+      --profile AdministratorAccess-660748123249 --region eu-central-1
+  done
 done
 
-# Terraform bootstrap secret
-aws secretsmanager create-secret --name "terraform" \
-  --secret-string '{"rds_pass":"...","opensearch_pass":"..."}' \
-  --region eu-central-1
-
-# Verify all secrets exist
-aws secretsmanager list-secrets --region eu-central-1 \
-  --query 'SecretList[*].Name' --output table
+# Google service account (region-independent)
+aws secretsmanager create-secret --name "prod/data" \
+  --secret-string file://backup-secrets/prod__data_secret_string.json \
+  --profile AdministratorAccess-660748123249 --region eu-central-1
 ```
 
-### 2.4 Terraform Apply
+**Step 4: Reconstruct failed secrets (13 services):**
 
-**Important:** The Terraform configs from Phase 1 already exclude EKS, Redis, OpenSearch, WAF, MSK, and runners. This is a clean apply.
+These must be manually reconstructed from password managers, team knowledge, or third-party dashboards. For each, create the secret with:
+- `CONNECTION_STRINGS` → placeholder (updated in Phase 3.3)
+- Third-party keys → from password manager / vendor dashboards
+- `AWS_ACCESS_KEY`/`AWS_ACCESS_SECRET` → from new Terraform CICD IAM user (after Phase 2.4)
 
 ```bash
-cd ticketing-platform-terraform-dev/dev
-terraform init -reconfigure   # Points to new eu-central-1 state bucket
-terraform plan                # Review carefully — should show all creates, zero destroys
-terraform apply
+# Template for each failed service:
+for env in prod; do
+  for svc in access-control automations catalogue customers dp ecwid \
+    geidea media organizations reporting transfer; do
+    aws secretsmanager create-secret --name "/$env/$svc" \
+      --secret-string '{"CONNECTION_STRINGS":"PLACEHOLDER","TODO":"reconstruct-from-password-manager"}' \
+      --profile AdministratorAccess-660748123249 --region eu-central-1
+  done
+done
+
+# Devops secret
+aws secretsmanager create-secret --name "devops" \
+  --secret-string '{"TODO":"reconstruct-from-password-manager"}' \
+  --profile AdministratorAccess-660748123249 --region eu-central-1
 ```
 
-**Creates:** VPC (10.10.0.0/16), 3x subnets per tier (Lambda subnets, RDS subnets, management), NAT Gateways, Route53 zones, S3 buckets (new `-eu` names), KMS keys, IAM roles, security groups, CloudFront distributions, OpenVPN EC2.
+**Step 5: Verify all secrets exist:**
+```bash
+aws secretsmanager list-secrets \
+  --profile AdministratorAccess-660748123249 --region eu-central-1 \
+  --query 'SecretList[*].Name' --output table
+# Expected: 21 service secrets + /rds/ticketing-cluster + prod/data + terraform + devops = 25
+```
 
-**Does NOT create:** EKS cluster, Redis, OpenSearch, WAF, MSK, runners.
+### 2.4 Terraform Apply (WITHOUT RDS Cluster)
 
-**Route53 DNS rerouting:** Terraform creates **new** public hosted zones (`dev.tickets.mdlbeast.net`, `sandbox.tickets.mdlbeast.net`) in eu-central-1. Route53 is a global service, but since this is a fresh Terraform state, new zones are created with new NS records. After `terraform apply`:
+**Important:** The Terraform configs from Phase 1 already exclude EKS, Redis, OpenSearch, WAF, MSK, and runners. Additionally, Phase 1 Task 9 commented out the `aws_rds_cluster` and `aws_rds_cluster_instance` resource blocks — this prevents Terraform from creating an empty database cluster that would conflict with the backup restore in Phase 2.6.
 
-1. Get the new zone's nameservers:
-   ```bash
-   aws route53 get-hosted-zone --id <new-zone-id> --query 'DelegationSet.NameServers'
-   ```
-2. **Update NS delegation at the parent domain** (`tickets.mdlbeast.net` or `mdlbeast.net`) to point to the new zone's nameservers. This is the step that makes public DNS resolve to eu-central-1.
-3. CDK stacks (Phase 3) will create A records in these zones pointing to the new eu-central-1 API Gateway endpoints — both public records (`api.{env}.*`, `geidea.{env}.*`) and private VPC-associated records (`*.internal.{env}.*`)
+**Prerequisite:** The `terraform` secret must exist in eu-central-1 (created in Phase 2.3 Step 1) because `secretmanager.tf` reads `rds_pass` from it at plan time.
 
-**Note:** Since me-south-1 is down, the old DNS records are already broken. There is no "cutover" risk — updating NS delegation simply restores DNS resolution via the new eu-central-1 infrastructure.
+```bash
+cd ticketing-platform-terraform-prod/prod
+
+# 1. Import existing Route53 hosted zones BEFORE apply
+#    Route53 zones are global — they still exist even though me-south-1 is down.
+#    Without import, Terraform would create DUPLICATE zones with different NS records.
+aws route53 list-hosted-zones \
+  --profile AdministratorAccess-660748123249 \
+  --query 'HostedZones[*].{Name:Name,Id:Id}' --output table
+
+# 2. Init and import
+AWS_PROFILE=AdministratorAccess-660748123249 terraform init -reconfigure
+AWS_PROFILE=AdministratorAccess-660748123249 terraform import \
+  'module.zones.aws_route53_zone.this["production.tickets.mdlbeast.net"]' <prod-zone-id>
+AWS_PROFILE=AdministratorAccess-660748123249 terraform import \
+  'module.zones.aws_route53_zone.this["tickets.mdlbeast.net"]' <root-zone-id>
+
+# 3. Plan and apply
+AWS_PROFILE=AdministratorAccess-660748123249 terraform plan
+# Expected: Route53 zones = "no changes"
+# Expected: Creates VPC, subnets, S3 buckets, KMS, IAM, security groups, CloudFront, NAT, etc.
+# Expected: NO aws_rds_cluster, NO aws_rds_cluster_instance (commented out)
+# Expected: YES aws_db_subnet_group, YES aws_security_group for RDS (needed for backup restore)
+
+AWS_PROFILE=AdministratorAccess-660748123249 terraform apply
+```
+
+**Creates:** VPC (10.10.0.0/16), 3x subnets per tier (Lambda, RDS, management), NAT Gateways, S3 buckets (new `-eu` names), KMS keys, IAM CICD user, security groups (incl. RDS security group), RDS DB subnet group, CloudFront distributions, OpenVPN EC2, Route53 zones (imported, not duplicated).
+
+**Does NOT create:** RDS cluster (commented out — restored from backup in 2.6), EKS, Redis, OpenSearch, WAF, MSK, runners.
+
+**S3 buckets** are created empty by Terraform. Backup data is restored into them in Phase 2.7 using `"NewBucket": "false"` — no conflict.
+
+**Route53 DNS:** After Terraform apply, the existing zones are managed by the new state. CDK stacks (Phase 3) will use `HostedZone.FromLookup` to find these zones and create/update A records pointing to new eu-central-1 API Gateway endpoints:
+- Public: `api.{env}.tickets.mdlbeast.net`, `geidea.{env}.tickets.mdlbeast.net`, `xp-badges.{env}.*`, `bandsintown.{env}.*`, `marketingfeed.{env}.*`
+- Private: `*.internal.{env}.tickets.mdlbeast.net` (new private hosted zone created by CDK, VPC-associated)
+
+**No parent domain NS delegation changes needed.** Old dead A records are overwritten when CDK deploys service stacks.
 
 **Verification:**
 ```bash
-aws ec2 describe-vpcs --region eu-central-1 \
+aws ec2 describe-vpcs \
+  --profile AdministratorAccess-660748123249 --region eu-central-1 \
   --filters "Name=tag:Name,Values=ticketing" --query 'Vpcs[0].VpcId'
-aws ec2 describe-subnets --region eu-central-1 \
+aws ec2 describe-subnets \
+  --profile AdministratorAccess-660748123249 --region eu-central-1 \
   --filters "Name=vpc-id,Values=<vpc-id>" --query 'Subnets | length(@)'
+# Also verify S3 buckets created:
+aws s3 ls --profile AdministratorAccess-660748123249 | grep -E "(pdf-tickets|csv-reports|media)-eu"
 ```
 
 ### 2.5 Populate Manual SSM Parameters
 
-These bridge Terraform → CDK and must exist before any CDK deploy:
+These bridge Terraform → CDK and must exist before any CDK deploy. The full SSM inventory is split into **manual** (must pre-exist) and **auto-created** (CDK writes during deploy).
+
+**Complete SSM parameter inventory:**
+
+| Parameter | Source | Manual? | Notes |
+|-----------|--------|---------|-------|
+| `/{env}/tp/VPC_NAME` | Static value `ticketing` | **YES** | CDK's `CdkStackUtilities.GetTicketingVpc` reads this |
+| `/{env}/tp/SUBNET_1` | Terraform output | **YES** | Lambda subnet IDs from `terraform output` |
+| `/{env}/tp/SUBNET_2` | Terraform output | **YES** | |
+| `/{env}/tp/SUBNET_3` | Terraform output | **YES** | |
+| `/rds/ticketing-cluster-identifier` | Aurora restore | **YES** | Set to restored cluster identifier (`ticketing-eu`) |
+| `/rds/ticketing-cluster-sg` | Terraform output | **YES** | RDS security group ID |
+| `/{env}/tp/DomainCertificateArn` | ACM (Phase 3.1) | **YES** | Gateway API certificate |
+| `/{env}/tp/geidea/DomainCertificateArn` | ACM (Phase 3.1) | **YES** | Geidea API certificate |
+| `/{env}/tp/xp-badges/DomainCertificateArn` | ACM (Phase 3.1) | **YES** | XP Badges API certificate |
+| `/{env}/tp/bandsintown-integration/DomainCertificateArn` | ACM (Phase 3.1) | **YES** | Bandsintown API certificate |
+| `/{env}/tp/marketing-feeds/DomainCertificateArn` | ACM (Phase 3.1) | **YES** | Marketing Feeds API certificate |
+| `/{env}/tp/pdf/generator/STORAGE_BUCKET_NAME` | S3 bucket name | **YES** | Must match new `-eu` bucket name |
+| `/{env}/tp/SlackNotification/ErrorsWebhookUrl` | Slack workspace | **YES** | SecureString — retrieve from Slack |
+| `/{env}/tp/SlackNotification/OperationalErrorsWebhookUrl` | Slack workspace | **YES** | SecureString |
+| `/{env}/tp/SlackNotification/SuspiciousOrdersWebhookUrl` | Slack workspace | **YES** | SecureString |
+| `/{env}/tp/SlackNotification/IgnoredErrorsPatterns` | Config | **YES** | StringList |
+| `/{env}/tp/InternalDomainCertificateArn` | CDK InternalCertificateStack | NO | Auto-created |
+| `/{env}/tp/ApiGatewayVpcEndpointId` | CDK ApiGatewayVpcEndpointStack | NO | Auto-created (shared dev/sandbox) |
+| `/{env}/tp/consumers/{service}/queue-arn` (×18) | CDK ConsumersSqsStack | NO | Auto-created per consumer |
+| `/rds/RdsProxyEndpoint` | CDK RdsProxyStack | NO | Auto-created |
+| `/rds/RdsProxyReadOnlyEndpoint` | CDK RdsProxyStack | NO | Auto-created |
+| `/{env}/tp/InternalServices/{service}` | CDK per service stack | NO | Auto-created per service |
+
+**Create manual parameters:**
 
 ```bash
-# VPC name (CDK's CdkStackUtilities.GetTicketingVpc reads this)
-for env in dev sandbox; do
+P="--profile AdministratorAccess-660748123249 --region eu-central-1"
+
+# VPC name
+for env in prod; do
   aws ssm put-parameter --name "/$env/tp/VPC_NAME" \
-    --type String --value "ticketing" --region eu-central-1
+    --type String --value "ticketing" $P
 done
 
-# RDS cluster references (after restore in 2.6)
+# RDS cluster references (cluster identifier for CDK RdsProxyStack)
 aws ssm put-parameter --name "/rds/ticketing-cluster-identifier" \
-  --type String --value "ticketing-eu" --region eu-central-1
+  --type String --value "ticketing-eu" $P
 
-RDS_SG=$(aws ec2 describe-security-groups --region eu-central-1 \
+# RDS security group ID (created by Terraform in 2.4 — still in rds.tf)
+RDS_SG=$(aws ec2 describe-security-groups $P \
   --filters "Name=group-name,Values=rds-one" \
   --query 'SecurityGroups[0].GroupId' --output text)
 aws ssm put-parameter --name "/rds/ticketing-cluster-sg" \
-  --type String --value "$RDS_SG" --region eu-central-1
+  --type String --value "$RDS_SG" $P
 
-# Subnet IDs for extension deployer
-SUBNET_1=$(aws ec2 describe-subnets --region eu-central-1 \
-  --filters "Name=tag:Name,Values=lambda-subnet-1a-prod" \
+# Subnet IDs (from Terraform output — verify tag names match your Terraform config)
+SUBNET_1=$(aws ec2 describe-subnets $P \
+  --filters "Name=tag:Name,Values=lambda-subnet-1a-dev" \
   --query 'Subnets[0].SubnetId' --output text)
-SUBNET_2=$(aws ec2 describe-subnets --region eu-central-1 \
-  --filters "Name=tag:Name,Values=lambda-subnet-1b-prod" \
+SUBNET_2=$(aws ec2 describe-subnets $P \
+  --filters "Name=tag:Name,Values=lambda-subnet-1b-dev" \
   --query 'Subnets[0].SubnetId' --output text)
-SUBNET_3=$(aws ec2 describe-subnets --region eu-central-1 \
-  --filters "Name=tag:Name,Values=lambda-subnet-1c-prod" \
+SUBNET_3=$(aws ec2 describe-subnets $P \
+  --filters "Name=tag:Name,Values=lambda-subnet-1c-dev" \
   --query 'Subnets[0].SubnetId' --output text)
 
-for env in dev sandbox; do
-  aws ssm put-parameter --name "/$env/tp/SUBNET_1" --type String --value "$SUBNET_1" --region eu-central-1
-  aws ssm put-parameter --name "/$env/tp/SUBNET_2" --type String --value "$SUBNET_2" --region eu-central-1
-  aws ssm put-parameter --name "/$env/tp/SUBNET_3" --type String --value "$SUBNET_3" --region eu-central-1
+for env in prod; do
+  aws ssm put-parameter --name "/$env/tp/SUBNET_1" --type String --value "$SUBNET_1" $P
+  aws ssm put-parameter --name "/$env/tp/SUBNET_2" --type String --value "$SUBNET_2" $P
+  aws ssm put-parameter --name "/$env/tp/SUBNET_3" --type String --value "$SUBNET_3" $P
 done
 
-# PDF Generator S3 bucket name (used by PdfGenerator ConsumersStack at CDK synth time)
-aws ssm put-parameter --name "/dev/tp/pdf/generator/STORAGE_BUCKET_NAME" \
-  --type String --value "dev-pdf-tickets-eu" --region eu-central-1
-aws ssm put-parameter --name "/sandbox/tp/pdf/generator/STORAGE_BUCKET_NAME" \
-  --type String --value "sandbox-pdf-tickets-eu" --region eu-central-1
+# PDF Generator S3 bucket name
+aws ssm put-parameter --name "/prod/tp/pdf/generator/STORAGE_BUCKET_NAME" \
+  --type String --value "pdf-tickets-prod-eu" $P
 
-# Slack webhook URLs (must be retrieved from Slack workspace or password manager)
-for env in dev sandbox; do
+# Slack webhook URLs (retrieve from Slack workspace or password manager)
+for env in prod; do
   for param in ErrorsWebhookUrl OperationalErrorsWebhookUrl SuspiciousOrdersWebhookUrl; do
     aws ssm put-parameter --name "/$env/tp/SlackNotification/$param" \
-      --type SecureString --value "<webhook-url>" --region eu-central-1
+      --type SecureString --value "<webhook-url>" $P
   done
   aws ssm put-parameter --name "/$env/tp/SlackNotification/IgnoredErrorsPatterns" \
-    --type StringList --value "<patterns>" --region eu-central-1
+    --type StringList --value "<patterns>" $P
 done
+
+# NOTE: Certificate ARN parameters (DomainCertificateArn, geidea, xp-badges,
+# bandsintown-integration, marketing-feeds) are created in Phase 3.1 after ACM issuance.
 ```
 
-**Verification:**
+**Verification (16 manual params expected for dev+sandbox):**
 ```bash
-aws ssm get-parameters-by-path --path "/" --recursive --region eu-central-1 \
-  --query 'Parameters[*].Name'
+aws ssm get-parameters-by-path --path "/" --recursive \
+  --profile AdministratorAccess-660748123249 --region eu-central-1 \
+  --query 'Parameters[*].Name' --output table
 ```
 
 ### 2.6 Restore Aurora from AWS Backup
 
-Since me-south-1 is down, restore from the cross-region backup copy in eu-central-1.
+Since me-south-1 is down, restore from the cross-region backup copy in eu-central-1. The RDS cluster/instance resources were commented out in Phase 1 Task 9 so Terraform did NOT create an empty cluster. The DB subnet group and security group WERE created by Terraform and are used here.
 
 ```bash
+P="--profile AdministratorAccess-660748123249 --region eu-central-1"
+
 # 1. List available Aurora backup recovery points in eu-central-1
 aws backup list-recovery-points-by-resource-type \
-  --resource-type "Aurora" --region eu-central-1 \
+  --resource-type "Aurora" $P \
   --query 'sort_by(RecoveryPoints, &CreationDate)[-1]'
 
-# 2. Restore the cluster from the most recent recovery point
+# 2. Get the RDS security group ID (created by Terraform in 2.4)
+RDS_SG=$(aws ec2 describe-security-groups $P \
+  --filters "Name=group-name,Values=rds-one" \
+  --query 'SecurityGroups[0].GroupId' --output text)
+
+# 3. Restore the cluster from the most recent recovery point
+#    Uses VPC subnets + security group created by Terraform
 aws backup start-restore-job \
   --recovery-point-arn "<recovery-point-arn>" \
-  --iam-role-arn "arn:aws:iam::307824719505:role/AWSBackupDefaultRole" \
+  --iam-role-arn "arn:aws:iam::660748123249:role/AWSBackupDefaultRole" \
   --metadata '{
     "DBClusterIdentifier": "ticketing-eu",
     "Engine": "aurora-postgresql",
     "DBSubnetGroupName": "postgres",
     "VpcSecurityGroupIds": "'$RDS_SG'"
-  }' \
-  --region eu-central-1
+  }' $P
 
-# 3. Wait for restore to complete
-aws backup describe-restore-job --restore-job-id "<job-id>" --region eu-central-1
+# 4. Wait for restore to complete (can take 15-60 minutes)
+aws backup describe-restore-job --restore-job-id "<job-id>" $P
+# Poll until Status = "COMPLETED"
 
-# 4. Verify the engine version matches expectations
-aws rds describe-db-clusters --db-cluster-identifier ticketing-eu \
-  --query 'DBClusters[0].EngineVersion' --region eu-central-1
+# 5. Verify the engine version matches expectations
+aws rds describe-db-clusters --db-cluster-identifier ticketing-eu $P \
+  --query 'DBClusters[0].EngineVersion'
 
-# 5. Add serverless instances (match dev instance count: 3)
+# 6. Add serverless instances (the restore only creates the cluster, not instances)
 for i in 0 1 2; do
   aws rds create-db-instance \
     --db-instance-identifier ticketing-eu-instance-$i \
     --db-cluster-identifier ticketing-eu \
     --engine aurora-postgresql \
-    --db-instance-class db.serverless \
-    --region eu-central-1
+    --db-instance-class db.serverless $P
 done
 
-# 6. Set Serverless v2 scaling (dev: 0.5-3 ACU)
+# 7. Set Serverless v2 scaling (prod: 8-64 ACU — elevated min during go-live)
 aws rds modify-db-cluster \
   --db-cluster-identifier ticketing-eu \
-  --serverless-v2-scaling-configuration MinCapacity=0.5,MaxCapacity=3 \
-  --region eu-central-1
+  --serverless-v2-scaling-configuration MinCapacity=8,MaxCapacity=64 $P
+# NOTE: MinCapacity elevated to 8 ACU during go-live to handle cold-cache load.
+# Reduce to normal 1.5 ACU after 72 hours stable (Phase 4.7).
 
-# 7. Verify cluster is available and writable
-aws rds describe-db-clusters --db-cluster-identifier ticketing-eu \
-  --query 'DBClusters[0].{Status:Status,Endpoint:Endpoint,ReaderEndpoint:ReaderEndpoint}' \
-  --region eu-central-1
+# 8. Wait for all instances to be available
+aws rds wait db-instance-available --db-instance-identifier ticketing-eu-instance-0 $P
+aws rds wait db-instance-available --db-instance-identifier ticketing-eu-instance-1 $P
+aws rds wait db-instance-available --db-instance-identifier ticketing-eu-instance-2 $P
+
+# 9. Verify cluster is available and writable
+aws rds describe-db-clusters --db-cluster-identifier ticketing-eu $P \
+  --query 'DBClusters[0].{Status:Status,Endpoint:Endpoint,ReaderEndpoint:ReaderEndpoint}'
+
+# 10. Import Aurora into Terraform state
+#     First: UNCOMMENT the aws_rds_cluster and aws_rds_cluster_instance blocks in rds.tf
+#     Update the cluster_identifier to match "ticketing-eu" if needed
+#     Update instance identifiers to match "ticketing-eu-instance-{0,1,2}" if needed
+cd ticketing-platform-terraform-prod/prod
+AWS_PROFILE=AdministratorAccess-660748123249 terraform import aws_rds_cluster.ticketing ticketing-eu
+AWS_PROFILE=AdministratorAccess-660748123249 terraform import 'aws_rds_cluster_instance.ticketing[0]' ticketing-eu-instance-0
+AWS_PROFILE=AdministratorAccess-660748123249 terraform import 'aws_rds_cluster_instance.ticketing[1]' ticketing-eu-instance-1
+AWS_PROFILE=AdministratorAccess-660748123249 terraform import 'aws_rds_cluster_instance.ticketing[2]' ticketing-eu-instance-2
+AWS_PROFILE=AdministratorAccess-660748123249 terraform plan
+# Review: should show no changes or minor drift. Fix any drift in rds.tf before proceeding.
+
+# 11. Update /rds/ticketing-cluster secret with the new endpoint
+AURORA_ENDPOINT=$(aws rds describe-db-clusters --db-cluster-identifier ticketing-eu $P \
+  --query 'DBClusters[0].Endpoint' --output text)
+
+# Read credentials from backup file
+RDS_USER=$(python3 -c "
+import json
+with open('backup-secrets/__rds__ticketing-cluster.json') as f:
+    d = json.load(f)
+print(json.loads(d['SecretString'])['username'])
+")
+RDS_PASS=$(python3 -c "
+import json
+with open('backup-secrets/__rds__ticketing-cluster.json') as f:
+    d = json.load(f)
+print(json.loads(d['SecretString'])['password'])
+")
+
+aws secretsmanager update-secret --secret-id "/rds/ticketing-cluster" \
+  --secret-string "{
+    \"username\": \"${RDS_USER}\",
+    \"password\": \"${RDS_PASS}\",
+    \"engine\": \"aurora-postgresql\",
+    \"host\": \"${AURORA_ENDPOINT}\",
+    \"port\": \"5432\",
+    \"dbClusterIdentifier\": \"ticketing-eu\"
+  }" $P
 ```
+
+**Sequence summary for RDS:**
+1. Phase 1 Task 9: Comment out `aws_rds_cluster` + `aws_rds_cluster_instance` in `rds.tf`
+2. Phase 2.4: `terraform apply` creates subnet group + security group, but NOT the cluster
+3. Phase 2.6 steps 3-9: Restore cluster from backup into Terraform-created subnet/sg
+4. Phase 2.6 step 10: Uncomment RDS resources in `rds.tf`, adjust identifiers, `terraform import`
+5. `terraform plan` should now show zero changes — Terraform manages the restored cluster
 
 ### 2.7 Restore S3 Data from AWS Backup
 
+S3 buckets were created empty by Terraform in 2.4. Backup data is restored INTO those existing buckets.
+
 ```bash
+P="--profile AdministratorAccess-660748123249 --region eu-central-1"
+
 # 1. List S3 backup recovery points in eu-central-1
 aws backup list-recovery-points-by-resource-type \
-  --resource-type "S3" --region eu-central-1
+  --resource-type "S3" $P
 
 # 2. For each bucket, restore to the new eu-central-1 bucket
-# New buckets were created by Terraform in 2.4 with -eu suffix
-# Restore backed-up data into the new buckets
+# Terraform created these with -eu suffix; "NewBucket": "false" restores data into existing bucket
 
 aws backup start-restore-job \
-  --recovery-point-arn "<recovery-point-arn>" \
-  --iam-role-arn "arn:aws:iam::307824719505:role/AWSBackupDefaultRole" \
+  --recovery-point-arn "<recovery-point-arn-for-pdf-tickets-prod>" \
+  --iam-role-arn "arn:aws:iam::660748123249:role/AWSBackupDefaultRole" \
   --metadata '{
-    "DestinationBucketName": "dev-pdf-tickets-eu",
+    "DestinationBucketName": "pdf-tickets-prod-eu",
     "NewBucket": "false"
-  }' \
-  --region eu-central-1
+  }' $P
 
-# Repeat for each bucket:
-# - dev-pdf-tickets → dev-pdf-tickets-eu
-# - sandbox-pdf-tickets → sandbox-pdf-tickets-eu
-# - ticketing-dev-csv-reports → ticketing-dev-csv-reports-eu
-# - ticketing-sandbox-csv-reports → ticketing-sandbox-csv-reports-eu
-# - ticketing-dev-media → ticketing-dev-media-eu
-# - ticketing-sandbox-media → ticketing-sandbox-media-eu
+# Repeat for each prod bucket (use the recovery point ARN matching the source bucket):
+# Source bucket (me-south-1)      → Destination bucket (eu-central-1)
+# pdf-tickets-prod                → pdf-tickets-prod-eu
+# tickets-pdf-download            → tickets-pdf-download-eu
+# ticketing-csv-reports           → ticketing-csv-reports-eu
+# ticketing-prod-media            → ticketing-prod-media-eu
 
-# 3. Verify object counts
-for bucket in dev-pdf-tickets-eu sandbox-pdf-tickets-eu ticketing-dev-csv-reports-eu \
-  ticketing-sandbox-csv-reports-eu ticketing-dev-media-eu ticketing-sandbox-media-eu; do
-  echo "$bucket: $(aws s3 ls s3://$bucket --recursive --summarize --region eu-central-1 | tail -1)"
+# 3. Monitor restore jobs
+aws backup list-restore-jobs $P \
+  --query 'RestoreJobs[?Status!=`COMPLETED`].{Id:RestoreJobId,Status:Status,Bucket:ResourceType}'
+
+# 4. Verify object counts after all restores complete
+for bucket in pdf-tickets-prod-eu tickets-pdf-download-eu ticketing-csv-reports-eu \
+  ticketing-prod-media-eu; do
+  echo "$bucket: $(aws s3 ls s3://$bucket --recursive --summarize $P | tail -1)"
 done
 ```
 
@@ -748,12 +1027,13 @@ done
 **Required before any `cdk deploy` in eu-central-1.** CDK needs its bootstrap S3 bucket and IAM roles.
 
 ```bash
-CDK_DEFAULT_ACCOUNT=307824719505 CDK_DEFAULT_REGION=eu-central-1 \
-  npx cdk bootstrap aws://307824719505/eu-central-1
+AWS_PROFILE=AdministratorAccess-660748123249 \
+  CDK_DEFAULT_ACCOUNT=660748123249 CDK_DEFAULT_REGION=eu-central-1 \
+  npx cdk bootstrap aws://660748123249/eu-central-1
 ```
 
 **Creates:**
-- S3 bucket: `cdk-hnb659fds-assets-307824719505-eu-central-1`
+- S3 bucket: `cdk-hnb659fds-assets-660748123249-eu-central-1` (prod account)
 - IAM roles for CDK deployment
 - CloudFormation stack: `CDKToolkit`
 
@@ -762,167 +1042,536 @@ CDK_DEFAULT_ACCOUNT=307824719505 CDK_DEFAULT_REGION=eu-central-1 \
 - [ ] VPC exists in eu-central-1 with correct CIDR and 3 AZs
 - [ ] All subnets created (Lambda, RDS, management tiers) — **no EKS, Redis, OpenSearch, runner subnets**
 - [ ] NAT Gateways operational with Elastic IPs
-- [ ] Route53 hosted zones created (dev, sandbox) — **update NS delegation at parent domain**
+- [ ] Route53 hosted zones imported (dev, sandbox) — no duplicates, same NS records as before
 - [ ] Aurora cluster restored from backup and available with 3 instances
 - [ ] Aurora Serverless v2 scaling configured (0.5-3 ACU)
-- [ ] S3 data restored to new `-eu` buckets
-- [ ] All SSM parameters populated
-- [ ] All secrets recreated in eu-central-1
+- [ ] Aurora imported into Terraform state — `terraform plan` shows no changes
+- [ ] RDS cluster/instance blocks uncommented in `rds.tf`
+- [ ] S3 data restored to new `-eu` buckets — object counts verified
+- [ ] All 16 manual SSM parameters populated (VPC, subnets, RDS refs, PDF bucket, Slack webhooks)
+- [ ] All 25 secrets created in eu-central-1 (11 from backup, 13 reconstructed + terraform/devops/rds/data)
+- [ ] `terraform` secret contains valid `rds_pass`
+- [ ] `/rds/ticketing-cluster` secret has correct Aurora endpoint
 - [ ] KMS key created in eu-central-1
+- [ ] IAM CICD user created — access key generated (needed for Phase 3.3)
 - [ ] Security groups configured (no EKS/Redis/OpenSearch rules)
 - [ ] CDK bootstrap stack deployed
 
 ---
 
-## Phase 3: Dev+Sandbox Services & Validation
+## Phase 3: Production Services under Temporary Domain
 
-**Duration:** 2-3 days | **Risk:** MEDIUM | **Rollback:** `cdk destroy` all stacks
+**Duration:** 2-3 days | **Risk:** HIGH | **Rollback:** `cdk destroy` all stacks (no live DNS affected)
 
-### 3.1 Create ACM Certificates
+### 3.1 Create Temporary Route53 Hosted Zone
 
-Three certificates needed before CDK stack deployment:
+Create the `production-eu.tickets.mdlbeast.net` hosted zone for the temporary deployment. This zone is NEW (not imported — it doesn't exist yet).
 
 ```bash
-# 1. Gateway public certificate (manual — not created by CDK)
-for env in dev sandbox; do
+P="--profile AdministratorAccess-660748123249 --region eu-central-1"
+
+# Create the temporary hosted zone
+aws route53 create-hosted-zone \
+  --name "production-eu.tickets.mdlbeast.net" \
+  --caller-reference "migration-$(date +%s)" \
+  --hosted-zone-config Comment="Temporary zone for eu-central-1 migration testing" \
+  --profile AdministratorAccess-660748123249
+
+# Get the new zone's NS records
+ZONE_ID=$(aws route53 list-hosted-zones \
+  --profile AdministratorAccess-660748123249 \
+  --query "HostedZones[?Name=='production-eu.tickets.mdlbeast.net.'].Id" --output text | sed 's|/hostedzone/||')
+aws route53 get-hosted-zone --id "$ZONE_ID" \
+  --profile AdministratorAccess-660748123249 \
+  --query 'DelegationSet.NameServers'
+
+# Add NS delegation in the parent zone (tickets.mdlbeast.net)
+# This makes production-eu.tickets.mdlbeast.net resolvable on the internet
+PARENT_ZONE_ID=$(aws route53 list-hosted-zones \
+  --profile AdministratorAccess-660748123249 \
+  --query "HostedZones[?Name=='tickets.mdlbeast.net.'].Id" --output text | sed 's|/hostedzone/||')
+
+# Create NS record in parent zone pointing to the new zone's nameservers
+# Replace NS1-NS4 with actual values from the command above
+aws route53 change-resource-record-sets --hosted-zone-id "$PARENT_ZONE_ID" \
+  --profile AdministratorAccess-660748123249 \
+  --change-batch '{
+    "Changes": [{
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "production-eu.tickets.mdlbeast.net",
+        "Type": "NS",
+        "TTL": 300,
+        "ResourceRecords": [
+          {"Value": "ns-XXX.awsdns-XX.org"},
+          {"Value": "ns-XXX.awsdns-XX.co.uk"},
+          {"Value": "ns-XXX.awsdns-XX.com"},
+          {"Value": "ns-XXX.awsdns-XX.net"}
+        ]
+      }
+    }]
+  }'
+```
+
+### 3.2 Create ACM Certificates
+
+Six certificates needed before CDK stack deployment (5 manual + 1 auto-created by CDK). All certificates use the **temporary** `production-eu` domain.
+
+**DNS validation:** Each certificate requires a CNAME record in Route53 for validation. Create the record in the `production-eu.tickets.mdlbeast.net` zone (created in 3.1). Certificates typically validate within 5-10 minutes.
+
+```bash
+P="--profile AdministratorAccess-660748123249 --region eu-central-1"
+
+# Helper: request cert, validate via Route53, store ARN in SSM
+request_cert() {
+  local domain=$1 ssm_path=$2 env=$3
   CERT_ARN=$(aws acm request-certificate \
-    --domain-name "api.$env.tickets.mdlbeast.net" \
-    --validation-method DNS \
-    --region eu-central-1 \
+    --domain-name "$domain" \
+    --validation-method DNS $P \
     --query 'CertificateArn' --output text)
-  # Complete DNS validation via Route53
-  aws ssm put-parameter --name "/$env/tp/DomainCertificateArn" \
-    --type String --value "$CERT_ARN" --region eu-central-1
-done
+  echo "Requested cert for $domain: $CERT_ARN"
 
-# 2. Geidea certificate (manual — not created by CDK)
-for env in dev sandbox; do
-  CERT_ARN=$(aws acm request-certificate \
-    --domain-name "geidea.$env.tickets.mdlbeast.net" \
-    --validation-method DNS \
-    --region eu-central-1 \
-    --query 'CertificateArn' --output text)
-  aws ssm put-parameter --name "/$env/tp/geidea/DomainCertificateArn" \
-    --type String --value "$CERT_ARN" --region eu-central-1
-done
+  # Get DNS validation record
+  sleep 5  # Wait for ACM to generate validation record
+  VALIDATION=$(aws acm describe-certificate --certificate-arn "$CERT_ARN" $P \
+    --query 'Certificate.DomainValidationOptions[0].ResourceRecord')
+  echo "Add this CNAME to Route53: $VALIDATION"
 
-# 3. Internal certificate — created by InternalCertificateStack in 3.2 (no manual action)
+  # Create validation CNAME in Route53 (get hosted zone ID first)
+  # The hosted zone for {env}.tickets.mdlbeast.net was imported in Phase 2.4
+  ZONE_ID=$(aws route53 list-hosted-zones $P \
+    --query "HostedZones[?Name=='${env}.tickets.mdlbeast.net.'].Id" --output text | sed 's|/hostedzone/||')
+  VNAME=$(echo "$VALIDATION" | python3 -c "import json,sys; print(json.load(sys.stdin)['Name'])")
+  VVALUE=$(echo "$VALIDATION" | python3 -c "import json,sys; print(json.load(sys.stdin)['Value'])")
 
-# Verify all certs are ISSUED
-aws acm list-certificates --region eu-central-1 \
+  aws route53 change-resource-record-sets --hosted-zone-id "$ZONE_ID" $P \
+    --change-batch "{
+      \"Changes\": [{
+        \"Action\": \"UPSERT\",
+        \"ResourceRecordSet\": {
+          \"Name\": \"$VNAME\",
+          \"Type\": \"CNAME\",
+          \"TTL\": 300,
+          \"ResourceRecords\": [{\"Value\": \"$VVALUE\"}]
+        }
+      }]
+    }"
+
+  # Wait for validation
+  aws acm wait certificate-validated --certificate-arn "$CERT_ARN" $P
+  echo "Certificate ISSUED: $CERT_ARN"
+
+  # Store in SSM
+  aws ssm put-parameter --name "$ssm_path" \
+    --type String --value "$CERT_ARN" $P
+}
+
+# 1. Gateway
+request_cert "api.production-eu.tickets.mdlbeast.net" "/prod/tp/DomainCertificateArn" "production-eu"
+
+# 2. Geidea
+request_cert "geidea.production-eu.tickets.mdlbeast.net" "/prod/tp/geidea/DomainCertificateArn" "production-eu"
+
+# 3. XP Badges
+request_cert "xp-badges.production-eu.tickets.mdlbeast.net" "/prod/tp/xp-badges/DomainCertificateArn" "production-eu"
+
+# 4. Bandsintown Integration
+request_cert "bandsintown.production-eu.tickets.mdlbeast.net" "/prod/tp/bandsintown-integration/DomainCertificateArn" "production-eu"
+
+# 5. Marketing Feeds
+request_cert "marketingfeed.production-eu.tickets.mdlbeast.net" "/prod/tp/marketing-feeds/DomainCertificateArn" "production-eu"
+
+# 6. Internal certificate — created by InternalCertificateStack in 3.2 (no manual action)
+#    Covers: internal.{env}.tickets.mdlbeast.net + *.internal.{env}.tickets.mdlbeast.net
+
+# Verify all certs are ISSUED (5 per env × 2 envs = 10 certs)
+aws acm list-certificates $P \
   --query 'CertificateSummaryList[*].{Domain:DomainName,Status:Status}'
 ```
 
-### 3.2 Infrastructure CDK (11 Stacks — Strict Order)
+### 3.3 Infrastructure CDK (11 Stacks — Strict Order)
 
 ```bash
 cd ticketing-platform-infrastructure
-export CDK_DEFAULT_ACCOUNT=307824719505
+export AWS_PROFILE=AdministratorAccess-660748123249
+export CDK_DEFAULT_ACCOUNT=660748123249
 export CDK_DEFAULT_REGION=eu-central-1
-
-# Deploy for dev (then repeat for sandbox)
-export ENV_NAME=dev
+export ENV_NAME=prod
 
 # 1. EventBus (foundational — no dependencies)
-cdk deploy TP-EventBusStack-dev --require-approval never
+cdk deploy TP-EventBusStack-prod --require-approval never
 
 # 2. Consumer SQS queues (creates queues + stores ARNs in SSM)
-cdk deploy TP-ConsumersSqsStack-dev --require-approval never
+cdk deploy TP-ConsumersSqsStack-prod --require-approval never
 
 # 3. Consumer subscriptions (needs EventBus + SQS queue ARNs)
-cdk deploy TP-ConsumerSubscriptionStack-dev --require-approval never
+cdk deploy TP-ConsumerSubscriptionStack-prod --require-approval never
 
 # 4. Extended message S3 bucket (no dependencies)
-cdk deploy TP-ExtendedMessageS3BucketStack-dev --require-approval never
+cdk deploy TP-ExtendedMessageS3BucketStack-prod --require-approval never
 
-# 5. Internal hosted zone (needs VPC)
-cdk deploy TP-InternalHostedZoneStack-dev --require-approval never
+# 5. Internal hosted zone (needs VPC — creates production-eu.tickets.mdlbeast.net private zone)
+cdk deploy TP-InternalHostedZoneStack-prod --require-approval never
 
-# 6. Internal certificate (needs hosted zone + public Route53 zone)
-cdk deploy TP-InternalCertificateStack-dev --require-approval never
+# 6. Internal certificate (needs hosted zone — for *.internal.production-eu.tickets.mdlbeast.net)
+cdk deploy TP-InternalCertificateStack-prod --require-approval never
 
 # 7. Monitoring (needs EventBus)
-cdk deploy TP-MonitoringStack-dev --require-approval never
+cdk deploy TP-MonitoringStack-prod --require-approval never
 
-# 8. API Gateway VPC endpoint (needs VPC — shared for dev/sandbox)
+# 8. API Gateway VPC endpoint (needs VPC)
 cdk deploy TP-ApiGatewayVpcEndpointStack --require-approval never
 
 # 9. RDS Proxy (needs VPC + RDS cluster + SSM params)
 cdk deploy TP-RdsProxyStack --require-approval never
 
 # 10. Slack notification (needs SSM webhook URLs)
-cdk deploy TP-SlackNotificationStack-dev --require-approval never
+cdk deploy TP-SlackNotificationStack-prod --require-approval never
 
 # 11. XRay insight notification (needs EventBus + SSM webhooks)
-cdk deploy TP-XRayInsightNotificationStack-dev --require-approval never
+cdk deploy TP-XRayInsightNotificationStack-prod --require-approval never
 ```
 
-### 3.3 Update Connection Strings
+### 3.4 Update Connection Strings & Region-Dependent Secrets
 
-After RDS Proxy deploys, get the new endpoint and update service secrets:
+**Prerequisite:** RDS Proxy deployed (step 9 of 3.2), SQS queues deployed (step 2 of 3.2). Must complete **before** Phase 3.4 — DbMigrator Lambdas load secrets at runtime to connect to the database.
 
 ```bash
-RDS_PROXY_ENDPOINT=$(aws rds describe-db-proxies --region eu-central-1 \
-  --query 'DBProxies[0].Endpoint' --output text)
+P="--profile AdministratorAccess-660748123249 --region eu-central-1"
 
-# Update each service's CONNECTION_STRINGS in Secrets Manager
-# Format: Host=<endpoint>;Database=<db>;Username=<user>;Password=<pass>
+# 1. Get new RDS Proxy endpoint (created by CDK RdsProxyStack, stored in SSM)
+RDS_PROXY_ENDPOINT=$(aws ssm get-parameter \
+  --name "/rds/RdsProxyEndpoint" $P \
+  --query 'Parameter.Value' --output text)
+RDS_PROXY_RO_ENDPOINT=$(aws ssm get-parameter \
+  --name "/rds/RdsProxyReadOnlyEndpoint" $P \
+  --query 'Parameter.Value' --output text)
+
+# 2. Get RDS master credentials (from /rds/ticketing-cluster secret, updated in 2.6)
+RDS_CREDS=$(aws secretsmanager get-secret-value --secret-id "/rds/ticketing-cluster" $P \
+  --query 'SecretString' --output text)
+RDS_USER=$(echo "$RDS_CREDS" | python3 -c "import json,sys; print(json.load(sys.stdin)['username'])")
+RDS_PASS=$(echo "$RDS_CREDS" | python3 -c "import json,sys; print(json.load(sys.stdin)['password'])")
+
+# 3. Get new IAM CICD user credentials (created by Terraform in 2.4)
+#    Go to IAM Console → Users → find the CICD user → Security credentials → Create access key
+#    Or use: aws iam create-access-key --user-name <cicd-user-name> $P
+NEW_AWS_KEY="<from-IAM-console-or-cli>"
+NEW_AWS_SECRET="<from-IAM-console-or-cli>"
+
+# 4. Get new KMS key ID (created by Terraform in 2.4)
+NEW_KMS_KEY=$(aws kms list-aliases $P \
+  --query 'Aliases[?contains(AliasName,`ticketing`)].TargetKeyId' --output text)
+
+# 5. Update CONNECTION_STRINGS in each service secret
+# Services with CONNECTION_STRINGS (15 services):
+#   access-control, catalogue, customers, dp, extensions, integration,
+#   inventory, loyalty, marketplace, media, organizations, pricing,
+#   reporting, sales, transfer
+#
+# Connection string format: Host=<endpoint>;Database=<db>;Username=<user>;Password=<pass>
+# Each service has its own database name within the shared Aurora cluster.
+
+for env in prod; do
+  for svc in access-control catalogue customers dp extensions integration \
+    inventory loyalty marketplace media organizations pricing reporting sales transfer; do
+
+    # Read current secret, update region-dependent keys
+    aws secretsmanager get-secret-value --secret-id "/$env/$svc" \
+      $P --query 'SecretString' --output text | \
+      python3 -c "
+import json, sys
+secret = json.load(sys.stdin)
+
+# Update connection strings (use RDS Proxy endpoint)
+rds_endpoint = '${RDS_PROXY_ENDPOINT}'
+rds_user = '${RDS_USER}'
+rds_pass = '${RDS_PASS}'
+svc = '$svc'
+
+# Map service name to database name
+db_map = {
+    'access-control': 'access_control', 'catalogue': 'catalogue',
+    'customers': 'customers', 'dp': 'distribution_portal',
+    'extensions': 'extensions', 'integration': 'integration',
+    'inventory': 'inventory', 'loyalty': 'loyalty',
+    'marketplace': 'marketplace', 'media': 'media',
+    'organizations': 'organizations', 'pricing': 'pricing',
+    'reporting': 'reporting', 'sales': 'sales', 'transfer': 'transfer'
+}
+db_name = db_map.get(svc, svc)
+conn_str = f'Host={rds_endpoint};Database={db_name};Username={rds_user};Password={rds_pass}'
+
+if 'CONNECTION_STRINGS' in secret:
+    secret['CONNECTION_STRINGS'] = conn_str
+if 'CONNECTION_STRINGS_Sales' in secret:
+    secret['CONNECTION_STRINGS_Sales'] = conn_str
+
+# Update IAM credentials
+for k in ['AWS_ACCESS_KEY', 'STORAGE_ACCESS_KEY']:
+    if k in secret:
+        secret[k] = '${NEW_AWS_KEY}'
+for k in ['AWS_ACCESS_SECRET', 'STORAGE_SECRET_KEY']:
+    if k in secret:
+        secret[k] = '${NEW_AWS_SECRET}'
+
+# Update KMS key
+if 'KMS_KEY_ID' in secret:
+    secret['KMS_KEY_ID'] = '${NEW_KMS_KEY}'
+
+print(json.dumps(secret))
+" | aws secretsmanager update-secret --secret-id "/$env/$svc" \
+      --secret-string file:///dev/stdin $P
+  done
+done
+
+# 6. Update SQS queue URLs in secrets that reference them
+for env in prod; do
+  # Extensions service — deployer and executor queue URLs
+  EXT_DEPLOYER_QUEUE=$(aws sqs get-queue-url --queue-name "tp-extensions-deployer-consumer-$env" \
+    $P --query 'QueueUrl' --output text 2>/dev/null || echo "CHECK_QUEUE_NAME")
+  EXT_EXECUTOR_QUEUE=$(aws sqs get-queue-url --queue-name "tp-extensions-executor-consumer-$env" \
+    $P --query 'QueueUrl' --output text 2>/dev/null || echo "CHECK_QUEUE_NAME")
+
+  aws secretsmanager get-secret-value --secret-id "/$env/extensions" \
+    --region eu-central-1 --query 'SecretString' --output text | \
+    python3 -c "
+import json, sys
+secret = json.load(sys.stdin)
+secret['EXTENSION_DEPLOYER_SQS_QUEUE_URL'] = '${EXT_DEPLOYER_QUEUE}'
+secret['EXTENSION_EXECUTOR_SQS_QUEUE_URL'] = '${EXT_EXECUTOR_QUEUE}'
+print(json.dumps(secret))
+" | aws secretsmanager update-secret --secret-id "/$env/extensions" \
+      --secret-string file:///dev/stdin $P
+
+  # Marketplace + Sales — generic SQS_QUEUE_URL
+  for svc in marketplace sales; do
+    QUEUE_URL=$(aws sqs get-queue-url --queue-name "tp-$svc-consumer-$env" \
+      $P --query 'QueueUrl' --output text 2>/dev/null || echo "CHECK_QUEUE_NAME")
+
+    aws secretsmanager get-secret-value --secret-id "/$env/$svc" \
+      $P --query 'SecretString' --output text | \
+      python3 -c "
+import json, sys
+secret = json.load(sys.stdin)
+if 'SQS_QUEUE_URL' in secret:
+    secret['SQS_QUEUE_URL'] = '${QUEUE_URL}'
+print(json.dumps(secret))
+" | aws secretsmanager update-secret --secret-id "/$env/$svc" \
+        --secret-string file:///dev/stdin $P
+  done
+done
 ```
 
-### 3.4 Per-Service CDK Deployment Matrix
+**Verification:**
+```bash
+# Verify CONNECTION_STRINGS point to new RDS Proxy endpoint
+for env in prod; do
+  echo "=== $env ==="
+  for svc in access-control catalogue customers dp extensions integration \
+    inventory loyalty marketplace media organizations pricing reporting sales transfer; do
+    CONN=$(aws secretsmanager get-secret-value --secret-id "/$env/$svc" \
+      $P --query 'SecretString' --output text | \
+      python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('CONNECTION_STRINGS','N/A')[:80])")
+    echo "  $svc: $CONN"
+  done
+done
+```
+
+**Note:** The database name mapping (`db_map`) above is an estimate. Verify actual database names by querying the restored Aurora cluster:
+```bash
+psql -h $RDS_PROXY_ENDPOINT -U $RDS_USER -c "\l" | grep -v template
+```
+
+### 3.5 Per-Service CDK Deployment Matrix
 
 Deploy services using the validated per-service stack matrix. **Not all services follow the same pattern.**
 
 For each service, set:
 ```bash
-export CDK_DEFAULT_REGION=eu-central-1 ENV_NAME=dev
+export AWS_PROFILE=AdministratorAccess-660748123249
+export CDK_DEFAULT_REGION=eu-central-1 ENV_NAME=prod
 ```
 
-| # | Service | Stacks (deploy in order) | Has DbMigrator |
-|---|---------|--------------------------|----------------|
-| 1 | **gateway** | GatewayStack | NO |
-| 2 | **catalogue** | DbMigratorStack → ServerlessBackendStack | YES |
-| 3 | **organizations** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
-| 4 | **inventory** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
-| 5 | **pricing** | DbMigratorStack → ConsumersStack → ServerlessBackendStack | YES |
-| 6 | **sales** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
-| 7 | **access-control** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
-| 8 | **media** | DbMigratorStack → MediaStorageStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
-| 9 | **reporting-api** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
-| 10 | **transfer** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
-| 11 | **loyalty** | ConsumersStack → BackgroundJobsStack | NO |
-| 12 | **marketplace** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
-| 13 | **integration** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
-| 14 | **distribution-portal** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
-| 15 | **geidea** | ConsumersStack → BackgroundJobsStack → ApiStack (HTTP API v2) | NO |
-| 16 | **extension-api** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
-| 17 | **extension-deployer** | ExtensionDeployerLambdaRoleStack → ExtensionDeployerStack | NO |
-| 18 | **extension-executor** | ExtensionExecutorStack | NO |
-| 19 | **extension-log-processor** | ExtensionLogsProcessorStack | NO |
-| 20 | **csv-generator** | ConsumersStack | NO |
-| 21 | **pdf-generator** | ConsumersStack | NO |
-| 22 | **automations** | WeeklyTicketsSenderStack + AutomaticDataExporterStack + FinanceReportSenderStack | NO |
-| 23 | **customer-service** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+**Deployment notes:**
+- Each service's CDK deploy + DB migration is self-contained (touches only its own database schema), so services within the same tier can be deployed **in parallel**.
+- **Gateway must deploy last** — it is the reverse proxy that routes to all other services. Deploying it before backend services are up would cause health check failures.
+
+| # | Tier | Service | Stacks (deploy in order) | Has DbMigrator |
+|---|------|---------|--------------------------|----------------|
+| 1 | 1 | **catalogue** | DbMigratorStack → ServerlessBackendStack | YES |
+| 2 | 1 | **organizations** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 3 | 1 | **loyalty** | ConsumersStack → BackgroundJobsStack | NO |
+| 4 | 1 | **csv-generator** | ConsumersStack | NO |
+| 5 | 1 | **pdf-generator** | ConsumersStack | NO |
+| 6 | 1 | **automations** | WeeklyTicketsSenderStack + AutomaticDataExporterStack + FinanceReportSenderStack | NO |
+| 7 | 1 | **extension-api** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 8 | 1 | **extension-deployer** | ExtensionDeployerLambdaRoleStack → ExtensionDeployerStack | NO |
+| 9 | 1 | **extension-executor** | ExtensionExecutorStack | NO |
+| 10 | 1 | **extension-log-processor** | ExtensionLogsProcessorStack | NO |
+| 11 | 1 | **customer-service** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 12 | 2 | **inventory** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 13 | 2 | **pricing** | DbMigratorStack → ConsumersStack → ServerlessBackendStack | YES |
+| 14 | 2 | **media** | DbMigratorStack → MediaStorageStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 15 | 2 | **reporting-api** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 16 | 2 | **marketplace** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 17 | 2 | **integration** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 18 | 2 | **distribution-portal** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 19 | 3 | **sales** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 20 | 3 | **access-control** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 21 | 3 | **transfer** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
+| 22 | 3 | **geidea** | ConsumersStack → BackgroundJobsStack → ApiStack (HTTP API v2) | NO |
+| 23 | **LAST** | **gateway** | GatewayStack | NO |
 
 **For services with DbMigrator:**
 ```bash
+P="--profile AdministratorAccess-660748123249 --region eu-central-1"
+
 cd ticketing-platform-<service>/src/TP.<Service>.Cdk
 
-# 1. Deploy DbMigrator stack
+# 1. Deploy DbMigrator stack (CDK uses AWS_PROFILE env var set in 3.2)
 cdk deploy TP-DbMigratorStack-<service>-dev --require-approval never
 
 # 2. Run migration
 aws lambda invoke --function-name "<service>-db-migrator-lambda-dev" \
-  --payload '{}' --region eu-central-1 /dev/null
+  --payload '{}' $P /dev/null
 
-# 3. Create log groups
-aws logs create-log-group --log-group-name "/aws/lambda/<service>-serverless-dev-function" --region eu-central-1
-aws logs create-log-group --log-group-name "/aws/lambda/<service>-consumers-lambda-dev" --region eu-central-1
+# 3. Create log groups (avoids cold-start log group creation delay)
+aws logs create-log-group --log-group-name "/aws/lambda/<service>-serverless-dev-function" $P
+aws logs create-log-group --log-group-name "/aws/lambda/<service>-consumers-lambda-dev" $P
 
 # 4+. Deploy remaining stacks in order per matrix above
 ```
 
-### 3.5 Update GitHub Secrets & Variables
+### 3.6 End-to-End Validation (Temporary Domain)
+
+Test everything via `*.production-eu.tickets.mdlbeast.net` — no live DNS is affected.
+
+- [ ] API Gateway responds at `api.production-eu.tickets.mdlbeast.net`
+- [ ] Geidea webhook endpoint responds at `geidea.production-eu.tickets.mdlbeast.net`
+- [ ] Internal services resolving via private DNS (`*.internal.production-eu.tickets.mdlbeast.net`)
+- [ ] Create event in catalogue
+- [ ] Create tickets in inventory
+- [ ] Process test order through sales
+- [ ] PDF ticket generation (S3 in eu-central-1 with `-eu` buckets)
+- [ ] CSV report generation
+- [ ] Media upload/download
+- [ ] Access control scanning flow
+- [ ] Slack notifications arriving (check console links point to eu-central-1)
+- [ ] Inter-service event flow (EventBridge → SQS → Consumer)
+- [ ] CloudWatch logs populating in eu-central-1
+- [ ] Extension deployer creates Lambda in eu-central-1
+
+**Note:** Dashboard and Distribution Portal cannot be fully tested yet — they point to `api.production.tickets.mdlbeast.net` (the real domain). Test backend APIs directly via the temporary domain or API Gateway URLs. Dashboard can be tested in Phase 4 after DNS cutover.
+
+### Phase 3 Verification Checklist
+
+- [ ] All 11 infrastructure stacks in CREATE_COMPLETE
+- [ ] All 23 service stacks deployed per matrix
+- [ ] All DB migrations ran successfully
+- [ ] Lambda functions responding (test invoke each)
+- [ ] EventBridge rules → SQS queues (18 consumers)
+- [ ] Internal DNS resolving (`*.internal.production-eu.tickets.mdlbeast.net`)
+- [ ] API Gateway endpoints accessible at `api.production-eu.tickets.mdlbeast.net`
+- [ ] RDS Proxy connecting to Aurora
+- [ ] All 13 failed secrets reconstructed with correct third-party keys
+
+---
+
+## Phase 4: DNS Cutover to Production Domain
+
+**Duration:** 0.5-1 day | **Risk:** CRITICAL | **This is the point of no return for DNS**
+
+After Phase 3 validation passes, cut over from the temporary `production-eu` domain to the real `production` domain. Only 6 CDK stacks need redeployment — all backend infrastructure remains unchanged.
+
+### 4.1 Revert Temporary Domain Mapping in CDK
+
+Revert the 8 files changed in Phase 1 Task 10:
+
+| File | Change back to |
+|------|---------------|
+| `ServerlessApiStackHelper.cs:47` | `env == "prod" ? "production" : env` |
+| `GatewayStack.cs:32` | `env == "prod" ? "production" : env` |
+| `InternalHostedZoneStack.cs:15` | `env == "prod" ? "production" : env` |
+| `InternalCertificateStack.cs:15` | `env == "prod" ? "production" : env` |
+| `Geidea ApiStack.cs:32` | `env == "prod" ? "production" : env` |
+| `XpBadges ApiStack.cs:29` | `env == "prod" ? "production" : env` |
+| `MarketingFeedsStack.cs:25` | `$"{(env == "prod" ? "production" : env)}.tickets.mdlbeast.net"` |
+| `BandsintownIntegrationStack.cs:25` | `$"{(env == "prod" ? "production" : env)}.tickets.mdlbeast.net"` |
+
+**Note:** MarketingFeeds and Bandsintown now use `"production"` (fixed inconsistency — previously used `env` directly producing `prod.tickets.mdlbeast.net` which had no Route53 zone).
+
+### 4.2 Create ACM Certificates for Real Domain
+
+```bash
+P="--profile AdministratorAccess-660748123249 --region eu-central-1"
+
+# Same request_cert helper as Phase 3.2, but with production domain
+# Zone for validation: production.tickets.mdlbeast.net (imported in Phase 2.4)
+
+request_cert "api.production.tickets.mdlbeast.net" "/prod/tp/DomainCertificateArn" "production"
+request_cert "geidea.production.tickets.mdlbeast.net" "/prod/tp/geidea/DomainCertificateArn" "production"
+request_cert "xp-badges.production.tickets.mdlbeast.net" "/prod/tp/xp-badges/DomainCertificateArn" "production"
+request_cert "bandsintown.production.tickets.mdlbeast.net" "/prod/tp/bandsintown-integration/DomainCertificateArn" "production"
+request_cert "marketingfeed.production.tickets.mdlbeast.net" "/prod/tp/marketing-feeds/DomainCertificateArn" "production"
+
+# Verify all certs ISSUED
+aws acm list-certificates $P \
+  --query 'CertificateSummaryList[?contains(DomainName,`production.tickets`)].{Domain:DomainName,Status:Status}'
+```
+
+**Note:** The SSM parameters are overwritten with the new cert ARNs — CDK will pick them up on redeploy.
+
+### 4.3 Redeploy Public-Facing Stacks
+
+Only 6 stacks touch DNS/custom domains. The other 17+ stacks (EventBus, SQS, consumers, all service backends, RDS Proxy) are **not redeployed**.
+
+```bash
+export AWS_PROFILE=AdministratorAccess-660748123249
+export CDK_DEFAULT_ACCOUNT=660748123249
+export CDK_DEFAULT_REGION=eu-central-1
+export ENV_NAME=prod
+
+# 1. Internal hosted zone (updates private zone to production.tickets.mdlbeast.net)
+cd ticketing-platform-infrastructure
+cdk deploy TP-InternalHostedZoneStack-prod --require-approval never
+
+# 2. Internal certificate (new wildcard cert for *.internal.production.tickets.mdlbeast.net)
+cdk deploy TP-InternalCertificateStack-prod --require-approval never
+
+# 3. Gateway (creates api.production.tickets.mdlbeast.net custom domain + A record)
+cd ticketing-platform-gateway/src/Gateway.Cdk
+cdk deploy GatewayStack --require-approval never
+
+# 4. Geidea (creates geidea.production.tickets.mdlbeast.net)
+cd ticketing-platform-geidea/src/TP.Geidea.Cdk
+cdk deploy TP-Geidea-ApiStack-prod --require-approval never
+
+# 5. XP Badges (creates xp-badges.production.tickets.mdlbeast.net)
+cd ticketing-platform-xp-badges/src/TP.XpBadges.Cdk
+cdk deploy TP-XpBadges-ApiStack-prod --require-approval never
+
+# 6. Bandsintown + Marketing Feeds (if deployed in prod)
+cd ticketing-platform-bandsintown-integration/TP.Bandsintown.Integration.Cdk
+cdk deploy TP-BandsintownIntegration-Stack-prod --require-approval never
+cd ticketing-platform-marketing-feeds/...
+cdk deploy TP-MarketingFeeds-Stack-prod --require-approval never
+```
+
+**What happens:** CDK updates API Gateway custom domains from `*.production-eu.tickets.mdlbeast.net` to `*.production.tickets.mdlbeast.net` and creates A records in the existing `production.tickets.mdlbeast.net` hosted zone. DNS goes live for production.
+
+**Also redeploy all ServerlessBackendStack stacks** for internal services, since `ServerlessApiStackHelper` creates CNAME records in the private hosted zone:
+```bash
+# For each service with ServerlessBackendStack:
+# catalogue, organizations, inventory, pricing, sales, access-control,
+# media, reporting-api, transfer, marketplace, integration, distribution-portal,
+# extension-api, customer-service
+# Redeploy ONLY the ServerlessBackendStack (not DbMigrator, Consumers, etc.)
+cd ticketing-platform-<service>/src/TP.<Service>.Cdk
+cdk deploy TP-ServerlessBackendStack-<service>-prod --require-approval never
+```
+
+### 4.4 Update GitHub Secrets & Variables
 
 ```bash
 repos=(
@@ -946,7 +1595,6 @@ repos=(
   ticketing-platform-configmap-dev ticketing-platform-configmap-sandbox
 )
 
-# Update ALL region-related secrets (not just AWS_DEFAULT_REGION)
 for repo in "${repos[@]}"; do
   gh secret set AWS_DEFAULT_REGION --body "eu-central-1" --repo "mdlbeasts/$repo"
 done
@@ -957,148 +1605,34 @@ gh secret set TP_AWS_DEFAULT_REGION_PROD --body "eu-central-1" --repo "mdlbeasts
 gh secret set AWS_DEFAULT_REGION_PROD --body "eu-central-1" --repo "mdlbeasts/ticketing-platform-configmap-prod"
 gh secret set CDK_DEFAULT_REGION --body "eu-central-1" --repo "mdlbeasts/ticketing-platform-extension-deployer"
 
-# GitHub variables (not secrets)
+# GitHub variables
 gh variable set STORYBOOK_BUCKET_NAME --body "<new-eu-bucket>" --repo "mdlbeasts/ticketing-platform-dashboard"
 gh variable set STORYBOOK_CLOUDFRONT_DISTRIBUTION_ID --body "<new-distro-id>" --repo "mdlbeasts/ticketing-platform-dashboard"
 ```
 
-### 3.6 Merge Feature Branches & Deploy Frontends
+### 4.5 Merge to Production & Deploy Frontends
 
-- Merge all `feature/region-migration-eu-central-1` branches into `development`
-- Dashboard: merge vercel.json + .env changes → triggers Vercel redeploy
+- Merge `feature/region-migration-eu-central-1` branches to `master`/`production`
+- Dashboard: merge `vercel.json` + `.env` changes → triggers Vercel redeploy
 - Distribution Portal: merge and verify
-- Trigger a test CDK deployment of one service to verify CI/CD targets eu-central-1
-
-### 3.7 End-to-End Validation
-
-- [ ] Dashboard login works (Auth0 + API)
-- [ ] Create event in catalogue
-- [ ] Create tickets in inventory
-- [ ] Process test order through sales
-- [ ] PDF ticket generation (S3 in eu-central-1)
-- [ ] CSV report generation
-- [ ] Media upload/download
-- [ ] Access control scanning flow
-- [ ] Slack notifications arriving (check console links point to eu-central-1)
-- [ ] Inter-service event flow (EventBridge → SQS → Consumer)
-- [ ] CloudWatch logs populating in eu-central-1
-- [ ] Geidea payment webhook test (verify API endpoint accessible)
-- [ ] Extension deployer creates Lambda in eu-central-1
-
-### Phase 3 Verification Checklist
-
-- [ ] All 11 infrastructure stacks in CREATE_COMPLETE (both dev + sandbox)
-- [ ] All 21 service stacks deployed per matrix
-- [ ] All DB migrations ran successfully
-- [ ] Lambda functions responding (test invoke each)
-- [ ] EventBridge rules → SQS queues (18 consumers)
-- [ ] Internal DNS resolving (`*.internal.dev.tickets.mdlbeast.net`)
-- [ ] API Gateway endpoints accessible via VPC endpoint
-- [ ] RDS Proxy connecting to Aurora
-- [ ] GitHub secrets updated (all 4 region secrets)
-- [ ] CI/CD deploying to eu-central-1 (verify with one test push)
-
----
-
-## Phase 4: Production Foundation & Data Restore
-
-**Duration:** 2-3 days | **Risk:** HIGH | **Account:** `660748123249`
-
-Same pattern as Phase 2 but for production account.
-
-### 4.1 Service Quota Pre-Checks (Prod)
-Same as 2.1 but for prod account.
-
-### 4.2 State Bucket (Prod)
-```bash
-aws s3 mb s3://ticketing-terraform-prod-eu --region eu-central-1 --profile prod
-# Enable versioning + encryption (same as 2.2)
-```
-
-### 4.3 Security Remediation
-- Move plaintext passwords from `variables.tf` to Secrets Manager (`rds_pass`, `rds_pass_inventory`, `opensearch_pass`)
-- Update Terraform to use `data.aws_secretsmanager_secret_version` for credential retrieval
-- Rotate any credentials that were committed to git history
-
-### 4.4 Recreate Prod Secrets
-Same as 2.3 but for `/prod/` prefix secrets.
-
-### 4.5 Terraform Apply (Prod)
-```bash
-cd ticketing-platform-terraform-prod/prod
-terraform init -reconfigure
-terraform plan    # Verify: creates VPC, RDS, S3, IAM — NO EKS/Redis/OpenSearch/WAF/runners
-terraform apply
-```
-
-### 4.6 Populate Prod SSM Parameters
-Same as 2.5 but for prod account with prod values. Including:
-- `/{env}/tp/pdf/generator/STORAGE_BUCKET_NAME` → `pdf-tickets-prod-eu` (or equivalent prod bucket name)
-
-### 4.7 Restore Aurora from AWS Backup (Prod)
-Same pattern as 2.6 but:
-- Use prod backup recovery point
-- Cluster identifier: `ticketing-prod-eu`
-- **3 serverless instances** for prod
-- **Scaling: MinCapacity=1.5, MaxCapacity=64** (match prod capacity)
-- **Temporarily increase MinCapacity to 8+ ACU** during go-live week to handle cold-cache load
-
-### 4.8 Restore S3 Data (Prod)
-Same as 2.7 for prod buckets:
-- `pdf-tickets-prod` → `pdf-tickets-prod-eu`
-- `tickets-pdf-download` → `tickets-pdf-download-eu`
-- `ticketing-csv-reports` → `ticketing-csv-reports-eu`
-- `ticketing-prod-media` → `ticketing-prod-media-eu`
-
-### 4.9 CDK Bootstrap (Prod)
-```bash
-CDK_DEFAULT_ACCOUNT=660748123249 CDK_DEFAULT_REGION=eu-central-1 \
-  npx cdk bootstrap aws://660748123249/eu-central-1 --profile prod
-```
-
----
-
-## Phase 5: Production Services & Go-Live
-
-**Duration:** 1-2 days | **Risk:** CRITICAL
-
-### 5.1 Create ACM Certificates (Prod)
-Same as 3.1 but for prod domains (`api.tickets.mdlbeast.net`, `geidea.tickets.mdlbeast.net`).
-
-### 5.2 Deploy All CDK Stacks (Prod)
-Same as 3.2 with `ENV_NAME=prod`.
-
-### 5.3 Update Connection Strings (Prod)
-Same as 3.3 for prod secrets.
-
-### 5.4 Per-Service CDK (Prod)
-Same matrix as 3.4 with `ENV_NAME=prod`.
-
-### 5.5 Update GitHub Secrets (Prod)
-```bash
-# Prod-specific secrets (if separate from dev)
-gh secret set AWS_DEFAULT_REGION_PROD --body "eu-central-1" --repo "mdlbeasts/ticketing-platform-terraform-prod"
-```
-
-### 5.6 Merge to Production & Deploy Frontends
-- Merge feature branches to `master`/`production`
-- Dashboard: Vercel auto-deploys
-- Distribution Portal: verify deployment
 - Mobile Scanner: trigger release build
 
-### 5.7 End-to-End Validation (Prod)
-Full ticket lifecycle test:
-- [ ] Dashboard login (prod Auth0)
+### 4.6 End-to-End Validation (Production Domain)
+
+Full ticket lifecycle test via real `production.tickets.mdlbeast.net` domain:
+
+- [ ] Dashboard login (prod Auth0 + `api.production.tickets.mdlbeast.net`)
 - [ ] Create event → create tickets → process order → generate PDF → scan ticket
-- [ ] Payment flow (Geidea webhook delivery to new endpoint)
+- [ ] Payment flow (Geidea webhook delivery to `geidea.production.tickets.mdlbeast.net`)
 - [ ] CSV report generation
 - [ ] Media upload/download
 - [ ] Inter-service event flow
-- [ ] Slack error notifications (verify console links)
+- [ ] Slack error notifications (verify console links point to eu-central-1)
 - [ ] CloudWatch logs + X-Ray traces in eu-central-1
-- [ ] DNS resolution for all public endpoints
+- [ ] DNS resolution for all public endpoints (`dig api.production.tickets.mdlbeast.net`)
+- [ ] Mobile scanner app connects to new backend
 
-### 5.8 Post-Go-Live Monitoring (72 hours)
+### 4.7 Post-Go-Live Monitoring (72 hours)
 
 - CloudWatch dashboards for all services
 - Slack error channel for elevated error rates
@@ -1111,15 +1645,111 @@ Full ticket lifecycle test:
 
 ---
 
+## Phase 5: Dev+Sandbox Rebuild (Fresh)
+
+**Duration:** 1-2 days | **Risk:** LOW | **Account:** `307824719505`
+
+Dev and sandbox have **no backups** — they are rebuilt from scratch with empty databases.
+
+### 5.1 Overview
+
+Since dev/sandbox have no data to restore, the process is simpler than production:
+1. Terraform creates all infrastructure including RDS (no need to comment out — fresh empty cluster is fine)
+2. CDK deploys all stacks
+3. DB migrations create empty schemas
+4. Seed data manually or from prod exports
+
+### 5.2 Foundation (Account 307824719505)
+
+```bash
+export AWS_PROFILE=AdministratorAccess-307824719505
+export AWS_REGION=eu-central-1
+```
+
+1. **Service quota pre-checks** (same as Phase 2.1 but with `--profile AdministratorAccess-307824719505`)
+2. **Create Terraform state bucket:** `ticketing-terraform-dev-eu`
+3. **Create secrets** — same structure as prod, but with dev/sandbox values. Use `/dev/` and `/sandbox/` prefixes.
+4. **Terraform apply** (includes RDS cluster creation — no need to comment out/import since there's no backup to restore):
+   ```bash
+   cd ticketing-platform-terraform-dev/dev
+   # Import Route53 zones (dev.tickets.mdlbeast.net, sandbox.tickets.mdlbeast.net)
+   AWS_PROFILE=AdministratorAccess-307824719505 terraform init -reconfigure
+   AWS_PROFILE=AdministratorAccess-307824719505 terraform import \
+     'module.zones.aws_route53_zone.this["dev.tickets.mdlbeast.net"]' <dev-zone-id>
+   AWS_PROFILE=AdministratorAccess-307824719505 terraform import \
+     'module.zones.aws_route53_zone.this["sandbox.tickets.mdlbeast.net"]' <sandbox-zone-id>
+   AWS_PROFILE=AdministratorAccess-307824719505 terraform plan
+   AWS_PROFILE=AdministratorAccess-307824719505 terraform apply
+   ```
+5. **Populate SSM parameters** (same as Phase 2.5 but with `--profile AdministratorAccess-307824719505`)
+6. **CDK bootstrap**
+
+### 5.3 Services & Validation
+
+1. **Create ACM certificates** for dev + sandbox domains
+2. **Deploy infrastructure CDK** (11 stacks per environment, for both dev and sandbox)
+3. **Update connection strings** in secrets (new RDS endpoint from fresh cluster)
+4. **Deploy all service stacks** per matrix (same as Phase 3.5)
+5. **DB migrations** create empty schemas (no backup data — just fresh tables)
+6. **Seed test data** as needed
+7. **Update GitHub secrets** — `AWS_DEFAULT_REGION` for all repos (if not already done in Phase 4.4)
+8. **Merge feature branches** to `development` and `sandbox` branches
+9. **Validate** — basic smoke tests for dev/sandbox
+
+---
+
 ## Post-Migration Tasks
+
+### Temporary Domain Cleanup
+
+After Phase 4 DNS cutover is validated and stable:
+
+```bash
+P="--profile AdministratorAccess-660748123249"
+
+# 1. Delete the temporary hosted zone
+TEMP_ZONE_ID=$(aws route53 list-hosted-zones $P \
+  --query "HostedZones[?Name=='production-eu.tickets.mdlbeast.net.'].Id" --output text | sed 's|/hostedzone/||')
+
+# First delete all records in the zone (except NS and SOA)
+# Then delete the zone itself
+aws route53 delete-hosted-zone --id "$TEMP_ZONE_ID" $P
+
+# 2. Remove NS delegation record from parent zone (tickets.mdlbeast.net)
+PARENT_ZONE_ID=$(aws route53 list-hosted-zones $P \
+  --query "HostedZones[?Name=='tickets.mdlbeast.net.'].Id" --output text | sed 's|/hostedzone/||')
+aws route53 change-resource-record-sets --hosted-zone-id "$PARENT_ZONE_ID" $P \
+  --change-batch '{
+    "Changes": [{
+      "Action": "DELETE",
+      "ResourceRecordSet": {
+        "Name": "production-eu.tickets.mdlbeast.net",
+        "Type": "NS",
+        "TTL": 300,
+        "ResourceRecords": [...]
+      }
+    }]
+  }'
+
+# 3. Delete temporary ACM certificates (the production-eu ones)
+# List and delete certs containing "production-eu"
+aws acm list-certificates --profile AdministratorAccess-660748123249 --region eu-central-1 \
+  --query 'CertificateSummaryList[?contains(DomainName,`production-eu`)].CertificateArn' --output text | \
+  tr '\t' '\n' | while read arn; do
+    aws acm delete-certificate --certificate-arn "$arn" \
+      --profile AdministratorAccess-660748123249 --region eu-central-1
+  done
+```
 
 ### Extension Lambda Redeployment
 
-Existing extension Lambdas from me-south-1 no longer exist. Extension metadata survives in the restored Aurora database. Redeploy all active extensions to eu-central-1:
+Existing extension Lambdas from me-south-1 no longer exist. Extension metadata survives in the restored Aurora database. Redeploy all active extensions to eu-central-1. Do this after Phase 3.6 validation (temporary domain) or Phase 4.6 (production domain).
 
 ```bash
+P="--profile AdministratorAccess-660748123249 --region eu-central-1"
+
 # 1. Verify extension-deployer SSM parameter exists
-aws ssm get-parameter --name "/{env}/tp/extensions/EXTENSION_DEFAULT_ROLE" --region eu-central-1
+aws ssm get-parameter --name "/prod/tp/extensions/EXTENSION_DEFAULT_ROLE" $P
 
 # 2. Query extension-api for all deployed extensions
 # (via API or direct DB query against restored Aurora)
@@ -1140,7 +1770,7 @@ Do this after Phase 3.7 (dev/sandbox) and Phase 5.7 (prod).
 ### Data Stores (after 7-day stability)
 - [ ] Schedule me-south-1 KMS key deletion (7-day minimum wait) — once region recovers
 - [ ] Verify all S3 data restored completely (compare object counts if possible)
-- [ ] Import Aurora cluster into Terraform state
+- [ ] Configure AWS Backup cross-region policy in eu-central-1 (avoid repeating single-region risk)
 
 ### Infrastructure (once me-south-1 recovers)
 - [ ] Delete any remaining me-south-1 resources via Terraform/CDK
@@ -1189,25 +1819,32 @@ Do this after Phase 3.7 (dev/sandbox) and Phase 5.7 (prod).
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| **AWS Backup restore fails or data is stale** | LOW | CRITICAL | Verify backup recency; test restore on dev first; check RPO of backup schedule |
-| **Secrets cannot be reconstructed** | MEDIUM | CRITICAL | Maintain offline credential documentation; check AWS Backup for Secrets Manager |
+| **13 secrets failed backup — cannot be restored** | **HIGH** | **CRITICAL** | Must reconstruct from password managers, vendor dashboards, team knowledge. Inventory in Phase 2.3. **Blocker for prod go-live if third-party keys cannot be recovered.** |
+| **AWS Backup restore fails or data is stale** | LOW | CRITICAL | Last RDS snapshot: 2026-03-23 19:40 UTC+8. Test restore on dev first. |
+| **IAM credentials in secrets need regeneration** | HIGH | HIGH | Multiple services store `AWS_ACCESS_KEY`/`AWS_ACCESS_SECRET` in Secrets Manager. New Terraform creates new IAM CICD user — old credentials invalid. Must generate new keys and update all service secrets in Phase 3.3. |
 | CDK deploy fails (missing bootstrap) | ~~HIGH~~ RESOLVED | CRITICAL | CDK bootstrap added as Phase 2.8 and 4.9 |
-| Gateway/Geidea CDK fails (missing cert SSM) | ~~HIGH~~ RESOLVED | HIGH | ACM cert creation added as Phase 3.1 and 5.1 |
+| Gateway/Geidea/XpBadges/Bandsintown/MarketingFeeds CDK fails (missing cert SSM) | ~~HIGH~~ RESOLVED | HIGH | All 5 ACM certs + SSM params added to Phase 3.1 and 5.1 |
 | CI/CD deploys to wrong region (missed secrets) | ~~MEDIUM~~ RESOLVED | HIGH | All 4 GitHub secrets updated in Phase 3.5 |
 | CDK stack deployment fails (wrong pattern) | ~~HIGH~~ RESOLVED | MEDIUM | Per-service matrix replaces generic template |
-| Missing SSM parameter | MEDIUM | HIGH | Comprehensive param list in 2.5; verify all exist before CDK |
+| Duplicate Route53 hosted zones | ~~HIGH~~ RESOLVED | HIGH | Terraform import of existing zones added to Phase 2.4 and 4.5 |
+| Terraform creates empty RDS cluster conflicting with backup restore | ~~CRITICAL~~ RESOLVED | CRITICAL | RDS cluster/instance resources commented out in Phase 1 Task 9; restored from backup in 2.6/4.7; `terraform import` + uncomment after restore |
+| Aurora outside Terraform state | ~~HIGH~~ RESOLVED | HIGH | Terraform import added immediately after restore in Phase 2.6 and 4.7 |
+| Missing SSM parameter | MEDIUM | HIGH | Full SSM inventory table in 2.5; 16 manual params enumerated |
 | Cold Aurora with prod load | MEDIUM | HIGH | Increase min ACU during go-live week; restore gives warm data |
 | Extension Lambdas orphaned in me-south-1 | MEDIUM | MEDIUM | Document redeployment requirement; verify deployer uses `AWS_REGION` env var |
 | S3 bucket naming collision | LOW | MEDIUM | Using `-eu` suffix strategy; old buckets in down region don't conflict |
-| DNS propagation delay | LOW | MEDIUM | Lower TTL if possible; use weighted routing |
 | eu-central-1 service limits | LOW | HIGH | Pre-check quotas in 2.1 and 4.1 |
 | Cold Lambda performance post-go-live | MEDIUM | MEDIUM | Consider provisioned concurrency for gateway/sales |
 | Storybook deployment broken | MEDIUM | LOW | Migrate S3 + CloudFront; update GitHub vars |
 | S3 lifecycle on wrong bucket (dev) | LOW | LOW | Fixed in Phase 1 |
+| No AWS Backup policy in new region | MEDIUM | HIGH | Configure cross-region backup policy in eu-central-1 post-migration to avoid repeating single-region risk |
 
 ---
 
 *Plan created: 2026-03-05*
 *Revised: 2026-03-24 — me-south-1 down (disaster recovery), EKS deprecated, Redis/OpenSearch removed, CDK bootstrap added, per-service CDK matrix, CI/CD templates audited*
+*Revised: 2026-03-24 — Comprehensive secrets/SSM inventory (13 failed backups identified), Route53 zone import (no duplicate zones), Aurora Terraform import, 5 ACM certificates (was 2), detailed connection string procedure, tiered service deployment order, expanded risk matrix*
+*Revised: 2026-03-24 — Fixed Terraform/RDS ordering (comment out cluster → restore from backup → import), added --profile to all AWS CLI commands, added ACM DNS validation procedure, fixed dependency chain (terraform secret → terraform apply → backup restore → import), added Phase 2 IAM credential generation checkpoint*
+*Revised: 2026-03-24 — Restructured to production-first with temporary `production-eu.tickets.mdlbeast.net` domain. New phase order: Phase 1 (code) → Phase 2 (prod foundation) → Phase 3 (prod services under temp domain) → Phase 4 (DNS cutover) → Phase 5 (dev/sandbox fresh rebuild). Fixed MarketingFeeds/Bandsintown domain bug (used `prod` instead of `production`). Added temp zone cleanup to post-migration.*
 *Based on research in: `.planning/research/{ARCHITECTURE,PITFALLS,STACK}.md`*
 *Review document: `.personal/tasks/2026-03-05_aws-region-migration/review.md`*

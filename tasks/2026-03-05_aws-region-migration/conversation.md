@@ -36,3 +36,46 @@ Do a comprehensive review of `.personal/tasks/2026-03-05_aws-region-migration/pl
 
 7. Connection string chicken-and-egg (Phase 3.3)
   - Add the necessary detail to make this as straightforward as possible
+
+=======
+
+- Validate the that migration plan is doable on a step-by-step basis.
+  - Local code changes must have clear instructions to be performed manually or by an agent.
+  - Any manual work must have clear instructions on what to do. If some things need to be done through AWS console, steps must be provided.
+  - Verify that the order of sequence is correct and that all dependencies are accounted for
+
+- which is done first, the initial `terraform apply` or restoration of the Aurora RDS and S3 backups? If `terraform apply` goes first, wouldn't that make terraform create empty RDS database and S3 buckets? how will the backed up production db and s3 data be applied?
+
+- Any AWS CLI instructions must contain `--profile AdministratorAccess-307824719505` and, if required, `--region` for easier copy+paste
+
+
+=======
+
+1. Gateway SSM Certificate Path Mismatch
+   - Where did the idea that it should be stored in `/prod/tp/DomainCertificateArn` come from? is this an existing bug or an oversight in the planning process?
+
+2. GatewayStack has duplicate domain conditional at line 107
+   - Proceed with the suggested change
+
+3. Ecwid integration entirely missing from the plan
+   - Proceed with the suggestion
+
+4. CONNECTION_STRINGS format may be wrong in Phase 3.4 script
+   - Verify it yourself by checking in @.personal/tasks/2026-03-05_aws-region-migration/backup-secrets
+
+5. Four services with CDK stacks and custom domains are not in the deployment matrix
+   - Update the plan to include ecwid-integration
+   - Exclude xp-badges, bandsintown-integration, and marketing-feeds from the migration plan. Those are unused services which are due for deprecation anyway. Exclude these projects from the migration tasks.
+
+6. Category 2 (env-var.prod.json) — 4 services missing:
+   - Include `customer-service`, `automations`, and `ecwid-integration` in the inventory
+   - Exclude xp-badges for the same reason as in #5
+
+7. Category 3 (aws-lambda-tools-defaults.json) — actual count is 42, not "32+":
+   - Update the plan as suggested to reflect the correct count
+
+8. S3 bucket name variables in env-var files need -eu suffix:
+   - Include these in the migration steps
+
+9. Infrastructure CDK stack deployment order (Phase 3.3) — Slack/XRay inverted
+   - Update the plan based on the suggestion
