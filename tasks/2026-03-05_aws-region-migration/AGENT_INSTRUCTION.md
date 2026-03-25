@@ -16,10 +16,17 @@ When reading `execution.md`, pay special attention to:
 1. Find the first step in `execution.md` with status `PENDING` — that is your next task.
 2. Set its status to `IN_PROGRESS` and record the current timestamp.
 3. Read the corresponding section of `plan.md` for the detailed instructions, commands, and context for that step. Cross-reference against the Deviations Log — if a prior deviation affects your step, adapt accordingly.
-4. Execute the step. For steps that require AWS CLI or infrastructure commands, present the commands and ask me to confirm before running them. For code-only steps (file edits, git operations), proceed directly.
-5. After completing the step, update `execution.md`:
+4. Execute the step. For steps that require AWS CLI or infrastructure commands, present the commands and ask me to confirm before running them. For code-only steps (file edits), proceed directly.
+5. **After completing the file changes, do NOT commit automatically.** Instead:
+   - Present a summary of all affected repos and the changes made.
+   - Propose the commit message. **Always suffix the commit message with the step ID in parentheses**, e.g. `chore: update test files region from me-south-1 to eu-central-1 (P1-T7)`.
+   - **Wait for explicit approval** before running `git add` / `git commit` in any repo.
+   - Only after approval, commit to all affected repos using the approved message.
+   - **Do NOT add `Co-Authored-By` trailers** or any other trailers to commit messages.
+6. After completing the step, update `execution.md`:
    - Set status to `DONE` (or `FAILED`/`SKIPPED` with reason) and record the completion timestamp.
    - Check off substep boxes.
+   - **Record which repos were affected** in a `**Repos (N):**` field on the step.
    - Fill in any outputs in both the step's Outputs section and the Shared Outputs Registry table at the top.
    - **If you deviated from the plan in any way** (different command, extra step, skipped substep, different resource name, workaround for an error, etc.), record it in the step's **Deviations** field using this format:
      ```
@@ -29,8 +36,8 @@ When reading `execution.md`, pay special attention to:
      **Downstream impact:** <which future steps/phases are affected and how, or "None" if self-contained>
      ```
      Then add a summary row to the **Deviations Log** table near the top of `execution.md`.
-6. If a step fails, record what happened in Notes, set status to `FAILED`, and do not skip ahead — stop and await my input.
-7. After updating `execution.md`, **stop and await my confirmation** before moving to the next step.
+7. If a step fails, record what happened in Notes, set status to `FAILED`, and do not skip ahead — stop and await my input.
+8. After updating `execution.md`, **stop and await my confirmation** before moving to the next step.
 
 **Important context:**
 - Reference files for secrets reconstruction: `secrets-reconstruction.md`, `ssm-reconstruction.md`

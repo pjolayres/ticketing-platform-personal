@@ -1,2 +1,3 @@
 tasks/2026-03-05_aws-region-migration/backup-secrets
 tasks/2026-03-05_aws-region-migration/backup-ssm
+tasks/.DS_Store
