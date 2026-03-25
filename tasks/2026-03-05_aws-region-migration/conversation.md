@@ -6,6 +6,35 @@ Do a comprehensive review of `.personal/tasks/2026-03-05_aws-region-migration/pl
 
 =======
 
+Do a comprehensive review of                                           
+`.personal/tasks/2026-03-05_aws-region-migration/plan.md`. Launch agents 
+ to cross-reference the codebase and report any gaps in the plan.        
+Anticipate any potential issues that may result from implementing the    
+migration plan. Continue to validate the plan given the running review   
+in `.personal/tasks/2026-03-05_aws-region-migration/review.md` and       
+update it accordingly.                                                   
+                                                                         
+Be comprehensive. If no major issues arise, we will proceed with the     
+plan. so make sure it is production-ready as much as possible. Find any  
+gaps that may cause the migration procedure to fail.                     
+                                                                         
+when you are done, sound an alarm to notify me. I am in macos btw
+
+=======
+
+Do a comprehensive review of the following documents:
+- `.personal/tasks/2026-03-05_aws-region-migration/plan.md`.
+- `.personal/tasks/2026-03-05_aws-region-migration/secrets-reconstruction.md`
+- `.personal/tasks/2026-03-05_aws-region-migration/ssm-reconstruction.md`
+
+Then analyze the backed up secrets and parameters in:
+- @.personal/tasks/2026-03-05_aws-region-migration/backup-secrets
+- @.personal/tasks/2026-03-05_aws-region-migration/backup-ssm
+
+update the documents to reflect the newly backed up secrets and parameters. All secrets should be accounted for (in production), so this should be clearly incorporated in the migration plan during secrets manager population.
+
+=======
+
 
 1. Aurora backup restore — untested assumptions
   - There is a daily backup and the last RDS snapshot was from March 23, 2026, 19:40:00 (UTC+08:00)
@@ -148,3 +177,19 @@ low priority:
   Phase 3.4 verification comment says "Verify CONNECTION_STRINGS point to new RDS Proxy endpoint" but the actual implementation
   uses direct Aurora endpoints. The comments should be consistent.
 ```
+
+=======
+
+Do a comprehensive review of                                           
+`.personal/tasks/2026-03-05_aws-region-migration/plan.md`. Launch agents 
+ to cross-reference the codebase and report any gaps in the plan.        
+Anticipate any potential issues that may result from implementing the    
+migration plan. Continue to validate the plan given the running review   
+in `.personal/tasks/2026-03-05_aws-region-migration/review.md` and       
+update it accordingly.                                                   
+                                                                         
+Be comprehensive. If no major issues arise, we will proceed with the     
+plan. so make sure it is production-ready as much as possible. Find any  
+gaps that may cause the migration procedure to fail.                     
+                                                                         
+when you are done, sound an alarm to notify me. I am in macos btw

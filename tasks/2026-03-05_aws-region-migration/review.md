@@ -1,8 +1,8 @@
 # AWS Region Migration Plan Review
 
 **Plan:** `.personal/tasks/2026-03-05_aws-region-migration/plan.md`
-**Reviewed:** 2026-03-25 (Round 10)
-**Method:** 10 review rounds with 60+ parallel agents + AWS CLI live verification against me-south-1 prod account (660748123249). Round 8 validated: S3 buckets, Lambda functions, RDS cluster, SQS queues, Secrets Manager, Route53 zones, DNS records, CloudFront distributions, EventBridge buses, KMS keys, IAM users, and AWS Backup recovery points in eu-central-1. Round 9: 7 parallel agents cross-referencing CDK domain mappings, Terraform EKS deprecation, me-south-1 full sweep, CDK stack verification, secrets/SSM tracing, S3 bucket naming propagation, CI/CD workflows, and connection string/SQS update procedures. Round 10: 7 parallel agents — hardcoded endpoint/URL verification, Terraform file cross-reference, CDK domain mapping + stack verification, secrets/SSM reconstruction verification, S3 bucket naming propagation, CI/CD workflow audit, and missed dependency analysis (DynamoDB, health checks, Docker, cron, CloudWatch, Gateway routing).
+**Reviewed:** 2026-03-25 (Round 11)
+**Method:** 11 review rounds with 67+ parallel agents + AWS CLI live verification against me-south-1 prod account (660748123249). Round 8 validated: S3 buckets, Lambda functions, RDS cluster, SQS queues, Secrets Manager, Route53 zones, DNS records, CloudFront distributions, EventBridge buses, KMS keys, IAM users, and AWS Backup recovery points in eu-central-1. Round 9: 7 parallel agents cross-referencing CDK domain mappings, Terraform EKS deprecation, me-south-1 full sweep, CDK stack verification, secrets/SSM tracing, S3 bucket naming propagation, CI/CD workflows, and connection string/SQS update procedures. Round 10: 7 parallel agents — hardcoded endpoint/URL verification, Terraform file cross-reference, CDK domain mapping + stack verification, secrets/SSM reconstruction verification, S3 bucket naming propagation, CI/CD workflow audit, and missed dependency analysis (DynamoDB, health checks, Docker, cron, CloudWatch, Gateway routing). Round 11: 7 parallel agents — Terraform file content verification (all line numbers confirmed), CDK code + domain mappings (all 7 files re-verified), secrets backup + SSM reconstruction (24 backup files confirmed), CI/CD + Auth0/Sentry audit (region-agnostic confirmed), database connection patterns + EF Core (CONNECTION_STRINGS format verified), comprehensive me-south-1 sweep (all covered by 12 categories), Phase 4 NuGet + DNS cutover risk analysis (version inconsistency noted, CNAME gap confirmed addressed).
 
 - [Executive Summary](#executive-summary)
   - [Verdict by Phase](#verdict-by-phase)
@@ -50,7 +50,7 @@
 
 ## Executive Summary
 
-The migration plan is comprehensive and addresses ~99% of the migration scope. **Round 10** performed deep codebase cross-referencing with 7 parallel agents verifying hardcoded endpoints/URLs, Terraform file contents at exact line numbers, CDK domain mappings and stack names, secret reconstruction procedures, S3 bucket naming propagation, CI/CD workflow patterns, and missed dependencies (DynamoDB, health checks, cron schedules, Gateway routing). **Round 10 found 1 high-priority issue** (DynamoDB "Cache" table used by 7 services is not provisioned by Terraform or CDK and is missing from the migration plan) and **1 low-priority finding** (Gateway health check fallback URLs use bare `internal.tickets.mdlbeast.net` without environment prefix). All prior issues from Rounds 7-9 remain resolved. The plan's core structure is production-ready.
+The migration plan is comprehensive and production-ready. **Round 11** performed a final comprehensive verification with 7 parallel agents: Terraform file contents at exact line numbers (zero discrepancies), CDK domain mappings and stack names (all 7 files + 11 stacks confirmed), secrets backup files (24 present, exceeding the 22+ requirement), SSM parameter paths (exact match), CI/CD + third-party integrations (Auth0, Sentry, Seats.io all region-agnostic), database connection patterns (CONNECTION_STRINGS JSON dict format confirmed), comprehensive me-south-1 sweep (all references covered by plan's 12 categories), and Phase 4 NuGet + DNS cutover analysis (CNAME gap risk confirmed addressed). **Round 11 found 2 low-priority items** (dashboard `.env.development` has 2 uncovered `S3_MEDIA_BUCKET_URL` entries; TP.Tools.* version spread across services is wide but handled by plan's bump script). No new blockers. All prior issues remain resolved. **The plan is production-ready.**
 
 ### Verdict by Phase
 
@@ -70,7 +70,119 @@ The migration plan is comprehensive and addresses ~99% of the migration scope. *
 | CRITICAL | 0 | All resolved |
 | HIGH | 1 | ISSUE-39 (Phase 3 inter-service calls broken for loyalty/automations/ecwid/geidea — accepted limitation) |
 | MEDIUM | 5 | ISSUE-9, ISSUE-11, ISSUE-40, ISSUE-41, ISSUE-42 |
-| LOW | 2 | ISSUE-38 (IDE workspace files), ISSUE-44 (Gateway health check fallback URLs) |
+| LOW | 4 | ISSUE-38 (IDE workspace files), ISSUE-44 (Gateway health check fallback URLs), ISSUE-45 (dashboard S3_MEDIA_BUCKET_URL), ISSUE-46 (TP.Tools.* version spread) |
+
+---
+
+## Low-Priority Issues (Round 11)
+
+### ISSUE-45: Dashboard `.env.development` Has Uncovered `S3_MEDIA_BUCKET_URL` Entries
+
+**Severity:** LOW | **Phase:** Post-migration | **Status:** OPEN
+
+`ticketing-platform-dashboard/.env.development` has 2 `me-south-1` references not listed in the plan's Category 12:
+
+| Line | Content |
+|------|---------|
+| 16 | `# S3_MEDIA_BUCKET_URL=https://ticketing-sandbox-media.s3.me-south-1.amazonaws.com` (commented) |
+| 32 | `S3_MEDIA_BUCKET_URL=https://ticketing-media.s3.me-south-1.amazonaws.com` (active) |
+
+**Impact:** None — `S3_MEDIA_BUCKET_URL` is not referenced in any `.ts`/`.tsx`/`.js` source code in the dashboard. The variable appears to be a dead/unused local dev config. The Storybook cache (`node_modules/.cache/storybook/`) has baked-in copies of these env vars, but those are auto-generated and will be rebuilt.
+
+**Note:** The bucket name `ticketing-media` (without env prefix) doesn't match the plan's naming pattern (`ticketing-{env}-media`), further confirming this is a leftover.
+
+### ISSUE-46: TP.Tools.* NuGet Version Spread Across Services
+
+**Severity:** LOW | **Phase:** 1 (Task 19) | **Status:** OPEN
+
+Services have significantly different TP.Tools.* NuGet package versions:
+
+| Version Range | Services |
+|---------------|----------|
+| 1.0.1297–1.0.1299 | Sales, Media, Loyalty, Inventory, Pricing, Reporting (latest) |
+| 1.0.1292 | Marketplace, Distribution-Portal, Extension-API, Extension-Deployer |
+| 1.0.1291 | CSV-Generator, Extension-Executor |
+| 1.0.1125 | XP-Badges (excluded — 174 versions behind) |
+| 1.0.724 | Marketing-Feeds (excluded — 575 versions behind) |
+
+**Impact:** The plan's Task 19 version bump script correctly handles this — it uses a regex that replaces ANY `TP.Tools.*` version with the new one. The wide gap is not a risk because:
+- All migrated services (versions 1.0.1291–1.0.1299) are within a narrow 8-version range
+- Excluded services (xp-badges, marketing-feeds) are not being migrated
+- The NuGet publishing workflow always publishes all 12 packages together at the same version
+
+**No action required.** Noted for awareness.
+
+---
+
+## Confirmed Items (Round 11)
+
+### Full Codebase Cross-Reference (7 Parallel Agents)
+
+**Terraform Verification:**
+- All Terraform file contents verified at exact line numbers — zero discrepancies with plan ✓
+- `rds.tf` availability zones confirmed hardcoded at lines 200 (prod) and 162 (dev) — plan covers these ✓
+- `secretmanager.tf` hardcoded ARN confirmed — plan says "Hardcoded ARN → name-based lookup" ✓
+- `waf.tf` hardcoded ALB/IP set ARNs confirmed — plan says "DELETE entirely" ✓
+- `variables.tf` plaintext credentials confirmed at lines 96, 117, 125 — plan defers to Phase 4 ✓
+- `s3.tf` bucket definitions match plan's naming strategy ✓
+- `eks-subnet.tf` exists with subnets to rename ✓
+- `group.tf` Redis/OpenSearch IAM attachments confirmed at lines 33 and 81 ✓
+
+**CDK Code Verification:**
+- All 7 domain mapping files re-verified at exact line numbers with exact patterns ✓
+- All 11 infrastructure CDK stacks match plan's Phase 3.3 deployment order ✓
+- `ConsumersServices` enum: 18 entries match plan exactly ✓
+- `MediaStorageStack` creates bucket from `MEDIA_STORAGE_BUCKET_NAME` env var ✓
+- No hardcoded `me-south-1` in any CDK C# code ✓
+- All CDK stacks use `CDK_DEFAULT_REGION` env var — region-agnostic ✓
+- `GatewayStack:108` correctly uses mapped env name for SSM cert path ✓
+
+**Secrets & SSM Verification:**
+- 24 backup files present in `backup-secrets/` (exceeds plan's 22+ requirement) ✓
+- 10 SSM parameter backup files present in `backup-ssm/` ✓
+- `secrets-reconstruction.md` and `ssm-reconstruction.md` both exist ✓
+- `SecretManagerHelper.LoadSecretsToEnvironmentAsync` uses generic secretPath parameter — region-agnostic ✓
+- `ParameterStoreHelper.LoadParametersToEnvironmentAsync` uses parameterized paths ✓
+- Custom secret loading confirmed: loyalty (`/{env}/loyalty`), automations (`/{env}/automations`), ecwid (`/{env}/ecwid`) ✓
+- CSV generator SSM path: `/{env}/tp/csv/generator` confirmed ✓
+- PDF generator SSM path: `/{env}/tp/pdf/generator` confirmed ✓
+- `DynamoDbCacheProvider` table schema: CacheKey (HASH), CacheValue, ExpirationTime (TTL) — matches plan's Phase 2.5.1 ✓
+
+**CI/CD & Third-Party Integration Verification:**
+- Auth0 configured via env vars — no region-specific URLs ✓
+- Sentry DSN uses global `ingest.sentry.io` endpoint — region-agnostic ✓
+- Dashboard `vercel.json` CSP: 6 S3 URLs confirmed matching plan ✓
+- Mobile scanner: 3 hardcoded me-south-1 at lines 172, 200, 208 confirmed ✓
+- No other mobile scanner workflows have me-south-1 refs ✓
+- `deploy-cdk.yml` and `build.yml` correctly use `${{ secrets.AWS_DEFAULT_REGION }}` ✓
+- EKS workflows (`deploy.yml`, `k8s.yml`) confirmed dead code — plan correctly marks for removal ✓
+- Distribution portal frontend has zero me-south-1 refs ✓
+
+**Database & Connection Pattern Verification:**
+- `DbAutoConfigureHelper.cs` confirms: JSON dict with `PgSql`/`ReadonlyPgSql` keys, `System.Text.Json` parser ✓
+- Plan's regex `Host=[^;]+` replacement is safe for this format ✓
+- Database names NOT hardcoded in code — specified in connection strings (from Secrets Manager) ✓
+- DbMigrator Lambda function name pattern: `{service}-db-migrator-lambda-{env}` confirmed ✓
+- No RDS Proxy-specific code in any service — transparent to applications ✓
+- `HealthCheckHandler.cs` fallback URLs confirmed at lines 90-107 (matches ISSUE-44) ✓
+- Inter-service discovery via `ParameterStoreHelper.LoadParametersToEnvironmentAsync("/{env}/tp/InternalServices")` confirmed ✓
+- Services NOT calling LoadParametersToEnvironmentAsync (loyalty, automations, ecwid) confirmed — matches ISSUE-39 ✓
+
+**me-south-1 Comprehensive Sweep:**
+- All references covered by plan's 12 categories — no new uncovered references found ✓
+- Dashboard `.env` files: MEDIA_HOST references match Category 12 ✓
+- `S3_MEDIA_BUCKET_URL` entries are unused dead config (ISSUE-45 — LOW) ✓
+- Storybook cache has baked env vars — auto-regenerated, no manual action ✓
+
+**Phase 4 NuGet & DNS Cutover Verification:**
+- NuGet version generation: `1.0.${{github.run_number}}` confirmed ✓
+- 12 TP.Tools.* packages published together confirmed ✓
+- NuGet feed URL (`nuget.pkg.github.com/mdlbeasts`) is region-agnostic ✓
+- `InternalHostedZoneStack` uses `new PrivateHostedZone()` (create, not lookup) — CNAME gap risk is real ✓
+- Plan addresses CNAME gap with parallel ServerlessBackendStack deploys (Phase 4.3) ✓
+- `ServerlessApiStackHelper` CNAME creation uses `HostedZone.FromLookup()` — depends on zone existing ✓
+- No cross-account or cross-region CDK references detected ✓
+- CloudFront uses `bucket_regional_domain_name` in Terraform — auto-resolves to new region ✓
 
 ---
 
@@ -741,7 +853,7 @@ Complete matrix for Phase 3.4 and Phase 5.4. **All 23 services.**
 
 ---
 
-*Review completed: 2026-03-25 (Round 10)*
+*Review completed: 2026-03-25 (Round 11)*
 *Validated against: 30+ service repositories, Terraform configs, CDK stacks, CI/CD workflows, ConfigMaps*
 *Round 5: 6 parallel agents — missing services CDK audit, Terraform cross-references, uncovered me-south-1 references, SSM parameters, GitHub secrets, S3 buckets*
 *Round 5+: 3 parallel agents — comprehensive SSM audit, S3 bucket naming propagation, Route53 DNS rerouting analysis*
@@ -749,3 +861,4 @@ Complete matrix for Phase 3.4 and Phase 5.4. **All 23 services.**
 *Round 7: 8 parallel agents — CDK domain mapping verification (6/7 correct, ecwid missing), Terraform EKS cross-references (all files confirmed with line numbers), me-south-1 full sweep (958 refs, all covered by 12 categories), CDK Program.cs stack verification (24 services + infrastructure all match), S3 bucket + secrets path verification (17 buckets, all secret paths confirmed), connection strings + SQS queue naming analysis (3 critical issues found), CI/CD workflow audit (36 repos + ecwid confirmed), DNS cutover logic analysis (CNAME transition gap identified), Aurora restore procedure verification (identifier mismatch and metadata concerns found)*
 *Round 9: 7 parallel agents — CDK domain mapping re-verification (all 7 files confirmed, excluded services correctly out of scope), Terraform EKS deprecation (all files verified with cross-references, iam-s3-sqs.tf confirmed safe to delete), me-south-1 sweep (184 files, all covered by 12 categories), CDK stack names (11 infra + 23 service stacks confirmed), secrets/SSM tracing (16 secret paths verified, 16 manual SSM params confirmed), S3 bucket naming (all references covered), CI/CD workflows (35 repos + 3 special secrets confirmed), connection strings (standardized parsing confirmed, regex safe) + SQS (only extension services read queue URLs). New finding: Phase 3 inter-service call failure for loyalty/automations/ecwid/geidea (ISSUE-39)*
 *Round 10: 7 parallel agents — hardcoded endpoint/URL scan (SlackNotifier fallbacks + Gateway health check fallbacks found, all low-priority), Terraform file cross-reference (all line numbers and contents verified exactly, zero discrepancies), CDK domain mappings (all 7 files re-confirmed, no missing files), secrets reconstruction (22 backup files verified, 3 custom loading patterns confirmed, csv-generator SSM already in plan), S3 bucket naming (all hardcoded refs covered, CloudFront uses dynamic references), CI/CD workflows (k8s.yml has 6 refs not 2, all dead code, configmap workflows use secrets), missed dependencies (DynamoDB "Cache" table found — ISSUE-43). Net new: 1 HIGH issue (ISSUE-43), 1 LOW issue (ISSUE-44)*
+*Round 11: 7 parallel agents — Terraform file verification (all line numbers confirmed, zero discrepancies), CDK code + domain mapping re-verification (all 7 files + 11 stacks + 18 consumers confirmed), secrets backup verification (24 files in backup-secrets/, 10 in backup-ssm/, reconstruction docs present), CI/CD + third-party audit (Auth0/Sentry/Seats.io region-agnostic, mobile scanner confirmed, EKS workflows dead code), database connection pattern verification (DbAutoConfigureHelper JSON dict format, DbMigrator Lambda naming, no RDS Proxy-specific code), me-south-1 comprehensive sweep (all references covered, S3_MEDIA_BUCKET_URL dead config found), Phase 4 NuGet + DNS analysis (version spread noted, InternalHostedZoneStack CNAME gap confirmed addressed, CloudFront auto-resolves). Net new: 2 LOW issues (ISSUE-45 dashboard dead env var, ISSUE-46 NuGet version spread). Verdict: PRODUCTION-READY*
