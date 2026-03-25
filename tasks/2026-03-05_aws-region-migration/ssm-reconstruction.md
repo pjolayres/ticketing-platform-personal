@@ -1,6 +1,6 @@
 # SSM Parameters Reconstruction Reference
 
-*Generated: 2026-03-24 — Based on comprehensive codebase analysis of all SSM parameter consumers*
+*Generated: 2026-03-24 — Updated: 2026-03-25 — Based on comprehensive codebase analysis and verified backup files*
 
 - [Correction: Actual Backup Coverage](#correction-actual-backup-coverage)
 - [How SSM Parameters Work](#how-ssm-parameters-work)
@@ -22,18 +22,31 @@
 
 ---
 
-## Correction: Actual Backup Coverage
+## Backup Coverage Update (2026-03-25)
 
-The migration plan (Phase 2.5) lists 16 manual SSM parameters. The backup directory (`backup-ssm/`) contains **only 6 parameters** — and only 3 of those carry values usable in the new region.
+The backup directory (`backup-ssm/`) now contains **10 individual parameter files** plus `prod-params.json` (aggregated). Previous version reported only 6 parameters backed up — the following are now also available:
 
-Additionally, the plan does NOT account for **~29 runtime SSM parameters** read by csv-generator, pdf-generator, bandsintown-integration, and marketing-feeds at Lambda cold start. These are not created by CDK and are not in any backup.
+- `/prod/tp/SUBNET_1` — value: `06aa0798b2b9008fc` (me-south-1, not usable — new value from Terraform)
+- `/prod/tp/SlackNotification/ErrorsWebhookUrl` — **region-independent Slack webhook URL — USABLE**
+- `/prod/tp/SlackNotification/OperationalErrorsWebhookUrl` — **region-independent — USABLE**
+- `/prod/tp/SlackNotification/SuspiciousOrdersWebhookUrl` — **region-independent — USABLE**
+- `/rds/ticketing-cluster-sg` — value: `sg-0955697f31d92d787` (me-south-1, not usable — new value from Terraform)
+- `/prod/tp/geidea/DomainCertificateArn` — me-south-1 ACM ARN, not usable
 
 | Category | Total Parameters | Backed Up | Usable in eu-central-1 | Must Reconstruct |
 |----------|-----------------|-----------|------------------------|------------------|
-| Manual (pre-CDK) | 16 | 6 | 3 | 13 |
+| Manual (pre-CDK) | 13 | 12 | 6 | 7 (infrastructure values from Terraform/ACM) |
 | Auto-created (CDK) | ~40 | 1 | 0 (new values) | 0 (auto) |
-| Runtime (service-specific) | ~29 | 0 | 0 | 29 |
-| **Total** | **~85** | **7** | **3** | **42** |
+| Runtime (service-specific) | ~10 | 0 | 0 | 10 (csv-generator + pdf-generator only; bandsintown/marketing-feeds excluded) |
+| **Total** | **~63** | **13** | **6** | **17** |
+
+**Directly usable backup values (6):**
+- `VPC_NAME` = `ticketing` (static)
+- `/rds/ticketing-cluster-identifier` = `ticketing` (region-scoped, reusable)
+- `SlackNotification/IgnoredErrorsPatterns` = `info:,Information`
+- `SlackNotification/ErrorsWebhookUrl` = backed up Slack webhook URL
+- `SlackNotification/OperationalErrorsWebhookUrl` = backed up Slack webhook URL
+- `SlackNotification/SuspiciousOrdersWebhookUrl` = backed up Slack webhook URL
 
 ---
 
@@ -84,29 +97,26 @@ These parameters are read at `cdk synth` time. If missing, the CDK deploy fails.
 
 | # | Parameter Path | Read By | Purpose | Backup Status |
 |---|----------------|---------|---------|---------------|
-| 1 | `/{env}/tp/VPC_NAME` | `CdkStackUtilities.GetTicketingVpc()` | VPC name lookup for all stacks | **BACKED UP** — value: `ticketing` |
-| 2 | `/{env}/tp/SUBNET_1` | `CdkStackUtilities.GetSubnets()` | Lambda subnet ID | **NOT BACKED UP** |
-| 3 | `/{env}/tp/SUBNET_2` | `CdkStackUtilities.GetSubnets()` | Lambda subnet ID | **BACKED UP** — value: `027eaf2f55be58e82` |
-| 4 | `/{env}/tp/SUBNET_3` | `CdkStackUtilities.GetSubnets()` | Lambda subnet ID | **BACKED UP** — value: `0b62e26a6ef8bb536` |
-| 5 | `/rds/ticketing-cluster-identifier` | `RdsProxyStack` | Aurora cluster import | **BACKED UP** — value: `ticketing` (correct — RDS identifiers are region-scoped, reuse original name per ISSUE-32 fix) |
-| 6 | `/rds/ticketing-cluster-sg` | `RdsProxyStack` | RDS security group import | **NOT BACKED UP** |
-| 7 | `/{env}/tp/DomainCertificateArn` | `GatewayStack` | Gateway API custom domain cert | **NOT BACKED UP** — new cert needed |
-| 8 | `/{env}/tp/geidea/DomainCertificateArn` | `Geidea ApiStack` | Geidea API custom domain cert | **NOT BACKED UP** — new cert needed |
-| 9 | `/{env}/tp/xp-badges/DomainCertificateArn` | `XpBadges ApiStack` | XP Badges API cert | **NOT BACKED UP** — new cert needed |
-| 10 | `/{env}/tp/bandsintown-integration/DomainCertificateArn` | `BandsintownIntegrationStack` | Bandsintown API cert | **NOT BACKED UP** — new cert needed |
-| 11 | `/{env}/tp/marketing-feeds/DomainCertificateArn` | `MarketingFeedsStack` | Marketing Feeds API cert | **NOT BACKED UP** — new cert needed |
-| 12 | `/{env}/tp/SlackNotification/ErrorsWebhookUrl` | `SlackWebhookParameters` → `SlackNotificationStack` | Slack errors channel | **NOT BACKED UP** |
-| 13 | `/{env}/tp/SlackNotification/OperationalErrorsWebhookUrl` | `SlackWebhookParameters` → `SlackNotificationStack` | Slack ops errors channel | **NOT BACKED UP** |
-| 14 | `/{env}/tp/SlackNotification/SuspiciousOrdersWebhookUrl` | `SlackWebhookParameters` → `SlackNotificationStack` | Slack suspicious orders channel | **NOT BACKED UP** |
-| 15 | `/{env}/tp/SlackNotification/IgnoredErrorsPatterns` | `ErrorFilterService` (runtime, 15-min cache) | Patterns to filter from Slack alerts | **BACKED UP** — value: `info:,Information` |
-| 16 | `/{env}/tp/pdf/generator/STORAGE_BUCKET_NAME` | PDF generator runtime | PDF S3 bucket name | **NOT BACKED UP** — new bucket name |
+| 1 | `/{env}/tp/VPC_NAME` | `CdkStackUtilities.GetTicketingVpc()` | VPC name lookup for all stacks | **BACKED UP** — value: `ticketing` — **USABLE** |
+| 2 | `/{env}/tp/SUBNET_1` | `CdkStackUtilities.GetSubnets()` | Lambda subnet ID | **BACKED UP** — value: `06aa0798b2b9008fc` (me-south-1, not usable) |
+| 3 | `/{env}/tp/SUBNET_2` | `CdkStackUtilities.GetSubnets()` | Lambda subnet ID | **BACKED UP** — value: `027eaf2f55be58e82` (me-south-1, not usable) |
+| 4 | `/{env}/tp/SUBNET_3` | `CdkStackUtilities.GetSubnets()` | Lambda subnet ID | **BACKED UP** — value: `0b62e26a6ef8bb536` (me-south-1, not usable) |
+| 5 | `/rds/ticketing-cluster-identifier` | `RdsProxyStack` | Aurora cluster import | **BACKED UP** — value: `ticketing` — **USABLE** (region-scoped, reuse per ISSUE-32) |
+| 6 | `/rds/ticketing-cluster-sg` | `RdsProxyStack` | RDS security group import | **BACKED UP** — value: `sg-0955697f31d92d787` (me-south-1, not usable) |
+| 7 | `/{env}/tp/DomainCertificateArn` | `GatewayStack` | Gateway API custom domain cert | Not backed up — new cert needed in Phase 3.2 |
+| 8 | `/{env}/tp/geidea/DomainCertificateArn` | `Geidea ApiStack` | Geidea API custom domain cert | **BACKED UP** — me-south-1 ARN (not usable, new cert needed) |
+| 9 | `/{env}/tp/SlackNotification/ErrorsWebhookUrl` | `SlackWebhookParameters` → `SlackNotificationStack` | Slack errors channel | **BACKED UP** — **USABLE** (Slack webhooks are region-independent) |
+| 10 | `/{env}/tp/SlackNotification/OperationalErrorsWebhookUrl` | `SlackWebhookParameters` → `SlackNotificationStack` | Slack ops errors channel | **BACKED UP** — **USABLE** |
+| 11 | `/{env}/tp/SlackNotification/SuspiciousOrdersWebhookUrl` | `SlackWebhookParameters` → `SlackNotificationStack` | Slack suspicious orders channel | **BACKED UP** — **USABLE** |
+| 12 | `/{env}/tp/SlackNotification/IgnoredErrorsPatterns` | `ErrorFilterService` (runtime, 15-min cache) | Patterns to filter from Slack alerts | **BACKED UP** — value: `info:,Information` — **USABLE** |
+| 13 | `/{env}/tp/pdf/generator/STORAGE_BUCKET_NAME` | PDF generator runtime | PDF S3 bucket name | Not backed up — new bucket name |
 
 **Notes:**
-- Parameters 7-11 (certificate ARNs) cannot be restored from backup — ACM certificates are region-specific and must be newly issued in eu-central-1. The plan correctly handles this in Phase 3.2.
-- Parameters 2-4 (subnet IDs) and 6 (security group ID) will have new values from Terraform output.
+- Parameters 7-8 (certificate ARNs) cannot be restored from backup — ACM certificates are region-specific and must be newly issued in eu-central-1. The plan handles this in Phase 3.2.
+- Parameters 2-4 (subnet IDs) and 6 (security group ID) are backed up for reference but will have new values from Terraform output.
 - Parameter 5 (`/rds/ticketing-cluster-identifier`) backup value is `ticketing` — this is correct. Per ISSUE-32 fix, the restored cluster reuses the original identifier (RDS identifiers are region-scoped, not globally unique).
-- Parameter 10 (`bandsintown-integration/DomainCertificateArn`) lives under the same path prefix that the bandsintown Lambda reads at runtime. The CDK reads it at synth time; the Lambda harmlessly picks it up as an env var.
-- Parameter 11 (marketing-feeds) — same pattern as bandsintown.
+- xp-badges, bandsintown-integration, and marketing-feeds `DomainCertificateArn` parameters are **excluded from migration** per Decisions table — removed from this list.
+- **All 3 Slack webhook URLs are now backed up** and can be copied directly. No need to retrieve from Slack workspace.
 
 ### Category B: Auto-Created by CDK Stacks
 
@@ -151,18 +161,25 @@ All other services (20+) use only Pattern 2 (`ParameterStoreHelper.LoadParameter
 
 ## Backup vs. Required Comparison
 
-### Backed Up Successfully (6 parameters)
+### Backed Up Successfully (12 parameters)
 
 | Parameter | Value | Usable in eu-central-1? |
 |-----------|-------|------------------------|
 | `/prod/tp/VPC_NAME` | `ticketing` | **YES** — static name, unchanged |
+| `/prod/tp/SUBNET_1` | `06aa0798b2b9008fc` | **NO** — old me-south-1 subnet ID |
 | `/prod/tp/SUBNET_2` | `027eaf2f55be58e82` | **NO** — old me-south-1 subnet ID |
 | `/prod/tp/SUBNET_3` | `0b62e26a6ef8bb536` | **NO** — old me-south-1 subnet ID |
 | `/rds/ticketing-cluster-identifier` | `ticketing` | **YES** — reuse original name (region-scoped, per ISSUE-32 fix) |
+| `/rds/ticketing-cluster-sg` | `sg-0955697f31d92d787` | **NO** — old me-south-1 security group |
+| `/prod/tp/geidea/DomainCertificateArn` | `arn:aws:acm:me-south-1:...` | **NO** — me-south-1 cert, new cert needed |
 | `/prod/tp/InternalDomainCertificateArn` | `arn:aws:acm:me-south-1:...` | **NO** — me-south-1 cert, auto-recreated by CDK |
+| `/prod/tp/ApiGatewayVpcEndpointId` | `vpce-03dab09a7ff72e902` | **NO** — me-south-1 VPC endpoint, auto-recreated by CDK |
+| `/prod/tp/SlackNotification/ErrorsWebhookUrl` | Slack webhook URL | **YES** — Slack webhooks are region-independent |
+| `/prod/tp/SlackNotification/OperationalErrorsWebhookUrl` | Slack webhook URL | **YES** — region-independent |
+| `/prod/tp/SlackNotification/SuspiciousOrdersWebhookUrl` | Slack webhook URL | **YES** — region-independent |
 | `/prod/tp/SlackNotification/IgnoredErrorsPatterns` | `info:,Information` | **YES** — region-independent filter config |
 
-**Only 2 values are directly usable:** `VPC_NAME` and `IgnoredErrorsPatterns`. Everything else needs new values from the eu-central-1 infrastructure.
+**6 values are directly usable:** `VPC_NAME`, `ticketing-cluster-identifier`, `IgnoredErrorsPatterns`, and all 3 Slack webhook URLs. Everything else needs new values from eu-central-1 infrastructure.
 
 ### Not Backed Up — Infrastructure (regenerated by Terraform/CDK)
 
@@ -190,13 +207,15 @@ These parameters contain configuration or credentials that cannot be derived fro
 
 | Parameter | Type | Source for Reconstruction |
 |-----------|------|---------------------------|
-| `/{env}/tp/SlackNotification/ErrorsWebhookUrl` | SecureString | Slack workspace → Apps → Incoming Webhooks |
-| `/{env}/tp/SlackNotification/OperationalErrorsWebhookUrl` | SecureString | Same Slack workspace |
-| `/{env}/tp/SlackNotification/SuspiciousOrdersWebhookUrl` | SecureString | Same Slack workspace |
+| ~~`/{env}/tp/SlackNotification/ErrorsWebhookUrl`~~ | ~~SecureString~~ | ~~Slack workspace~~ **NOW BACKED UP — copy from backup** |
+| ~~`/{env}/tp/SlackNotification/OperationalErrorsWebhookUrl`~~ | ~~SecureString~~ | ~~Same Slack workspace~~ **NOW BACKED UP — copy from backup** |
+| ~~`/{env}/tp/SlackNotification/SuspiciousOrdersWebhookUrl`~~ | ~~SecureString~~ | ~~Same Slack workspace~~ **NOW BACKED UP — copy from backup** |
 | `/{env}/tp/csv/generator/*` (4 params) | Mixed | See [CSV Generator](#csv-generator) below |
-| `/{env}/tp/pdf/generator/*` (5 params, excl. STORAGE_BUCKET_NAME) | Mixed | See [PDF Generator](#pdf-generator) below |
-| `/{env}/tp/bandsintown-integration/*` (10 params) | Mixed | See [Bandsintown Integration](#bandsintown-integration) below |
-| `/{env}/tp/marketing-feeds/*` (9 params, excl. DomainCertificateArn) | Mixed | See [Marketing Feeds](#marketing-feeds) below |
+| `/{env}/tp/pdf/generator/*` (5 params, excl. STORAGE_BUCKET_NAME) | Mixed | See [PDF Generator](#pdf-generator) below. **Note:** `PDF_SERVICE_URL`, `PDF_SERVICE_API_KEY`, `PDF_SERVICE_API_SECRET`, `PDF_SERVICE_WORKSPACE_ID` are available from the media secret backup. |
+| ~~`/{env}/tp/bandsintown-integration/*`~~ | ~~Mixed~~ | **EXCLUDED from migration** (deprecated service) |
+| ~~`/{env}/tp/marketing-feeds/*`~~ | ~~Mixed~~ | **EXCLUDED from migration** (deprecated service) |
+
+**Effective reconstruction count:** Only CSV generator (4 params) and PDF generator (1 param: `STORAGE_EXPIRATION_HOURS`) truly need manual reconstruction. The other 4 PDF generator params come from the media secret backup.
 
 ---
 
@@ -334,27 +353,29 @@ These parameters contain configuration or credentials that cannot be derived fro
 
 ## Critical Reconstruction Warnings
 
-1. **`eventUrlSlug` (marketing-feeds) is the hardest parameter to reconstruct.** It contains a JSON array of event-to-URL-slug mappings. The data likely exists in the catalogue database (restored from backup), but someone must query it and format it correctly.
+1. ~~**`eventUrlSlug` (marketing-feeds) is the hardest parameter to reconstruct.**~~ Marketing-feeds is excluded from migration. Not applicable.
 
-2. **DatoCMS credentials (bandsintown) are third-party.** Recover from DatoCMS dashboard or password manager. There is no backup.
+2. ~~**DatoCMS credentials (bandsintown) are third-party.**~~ Bandsintown is excluded from migration. Not applicable.
 
-3. **PDF service credentials appear in TWO places.** The media service secret contains `PDF_SERVICE_URL`, `PDF_SERVICE_API_KEY`, `PDF_SERVICE_API_SECRET`, `PDF_SERVICE_WORKSPACE_ID` AND the PDF generator reads the same values from SSM under `/{env}/tp/pdf/generator/`. These must be kept in sync. The media secret backup has these values — copy them to the SSM parameters.
+3. **PDF service credentials appear in TWO places.** The media service secret contains `PDF_SERVICE_URL`, `PDF_SERVICE_API_KEY`, `PDF_SERVICE_API_SECRET`, `PDF_SERVICE_WORKSPACE_ID` AND the PDF generator reads the same values from SSM under `/{env}/tp/pdf/generator/`. These must be kept in sync. The media secret backup has these values — copy them to the SSM parameters. Confirmed values from backup: `PDF_SERVICE_URL` = `https://mdlbeast.pdfgeneratorapi.com/api/v3`, `PDF_SERVICE_WORKSPACE_ID` = `ilyas.assainov@mdlbeast.com`.
 
-4. **SendGrid API key appears in THREE places.** The organizations secret has `EMAIL_SERVICE_API_KEY`, the integration service likely has it, and the CSV generator reads it from SSM. Verify whether these are the same key or separate keys per service.
+4. **SendGrid API key appears in THREE places.** The organizations secret has `EMAIL_SERVICE_API_KEY`, the integration service has it, and the CSV generator reads it from SSM. Both the organizations and integration backups contain this key. Verify whether they are the same key or separate keys per service before populating the CSV generator SSM parameter.
 
-5. **`STORAGE_EXPIRATION_HOURS` has no backup anywhere.** This is a configuration value (not a credential) that determines presigned URL expiration. If the team doesn't know the production value, a reasonable default is `24` or `48`.
+5. **`STORAGE_EXPIRATION_HOURS` has no backup anywhere.** This is a configuration value (not a credential) that determines presigned URL expiration. If the team doesn't know the production value, a reasonable default is `48`.
 
-6. **Auth0 credentials (bandsintown, marketing-feeds) are NOT in any secret backup.** These services load all config from SSM, not Secrets Manager. The organizations secret backup has `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET`, `AUTH_DOMAIN` — these are for the organizations service's Auth0 client, not bandsintown/marketing-feeds. Each service likely has its own Auth0 client.
+6. **Slack webhook URLs are now fully backed up.** No need to retrieve from Slack workspace — copy directly from `backup-ssm/` files.
 
 ---
 
 ## Plan Gap: Missing Runtime SSM Parameters
 
-The migration plan Phase 2.5 only covers the 16 manual parameters needed before CDK deploy. It does **not** include creation of the ~29 runtime SSM parameters for csv-generator, pdf-generator, bandsintown-integration, and marketing-feeds.
+**Updated 2026-03-25:** The migration plan Phase 2.5 now includes CSV and PDF generator runtime SSM parameters. Bandsintown and marketing-feeds are excluded from migration.
+
+The remaining gap is only **~10 runtime SSM parameters** for csv-generator and pdf-generator (bandsintown-integration and marketing-feeds are excluded per Decisions table).
 
 These parameters are not CDK-blocking — services will deploy successfully without them. However, **Lambda invocations will fail at cold start** because `ReadSsmParametersAndAddToEnvVars` will return empty results, and the services will crash when required env vars are missing.
 
-**Recommended plan update:** Add a Phase 3.4.5 (after connection strings, before service deployment) or Phase 3.5.5 (after deployment, before validation) to populate these runtime SSM parameters:
+**The plan already covers these** in Phase 2.5 — the commands below are for reference only:
 
 ```bash
 P="--profile AdministratorAccess-660748123249 --region eu-central-1"
@@ -428,6 +449,6 @@ aws ssm put-parameter --name "/prod/tp/marketing-feeds/eventUrlSlug" \
 
 ---
 
-*Generated: 2026-03-24*
+*Generated: 2026-03-24 — Updated: 2026-03-25*
 *Sources: 5 parallel codebase exploration agents covering TP.Tools, infrastructure CDK, 25+ service CDKs, Terraform configs, and backup-ssm directory*
-*Cross-referenced with: secrets-reconstruction.md, plan.md Phase 2.5, review.md Appendix C*
+*Cross-referenced with: secrets-reconstruction.md, plan.md Phase 2.5, verified backup-ssm/ and backup-secrets/ files*

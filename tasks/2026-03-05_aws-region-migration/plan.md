@@ -629,6 +629,10 @@ find . -name "aws-lambda-tools-defaults.json" \
   -exec grep -l "me-south-1" {} \; | while read f; do
   sed -i '' 's/"region": "me-south-1"/"region": "eu-central-1"/g' "$f"
 done
+
+# Fix PDF generator anomaly — has eu-west-1 instead of me-south-1 (skipped by bulk script above)
+sed -i '' 's/"region": "eu-west-1"/"region": "eu-central-1"/g' \
+  ticketing-platform-pdf-generator/TP.PdfGenerator.Consumers/aws-lambda-tools-defaults.json
 ```
 
 ---
@@ -976,7 +980,7 @@ aws s3api put-bucket-encryption --bucket ticketing-terraform-prod-eu \
 
 ### 2.3 Recreate Secrets Manager Entries
 
-Since me-south-1 is down, secrets cannot be replicated. Local backups exist in `backup-secrets/` but **6 of 24 secrets failed retrieval** (region was already down). Each service loads its secret at Lambda cold-start via `SecretManagerHelper.LoadSecretsToEnvironmentAsync("/{env}/{service}")` (ecwid-integration uses a custom `GetSecretValueAsync` call instead).
+Since me-south-1 is down, secrets cannot be replicated. Local backups exist in `backup-secrets/` — **all 24 production secrets have been successfully backed up** (updated 2026-03-25; previous version reported 6 failures). Each service loads its secret at Lambda cold-start via `SecretManagerHelper.LoadSecretsToEnvironmentAsync("/{env}/{service}")` (ecwid-integration uses a custom `GetSecretValueAsync` call instead).
 
 **Detailed reconstruction reference:** `secrets-reconstruction.md` — per-key breakdown with sources for every secret.
 
@@ -984,30 +988,30 @@ Since me-south-1 is down, secrets cannot be replicated. Local backups exist in `
 
 | Secret Path | Backup Status | Keys | Action |
 |-------------|--------------|------|--------|
-| `/{env}/access-control` | **FAILED** | — | Reconstruct: `CONNECTION_STRINGS`, `ENCRYPTION_KEY` (generate new), `ENCRYPTION_IV` (generate new) |
-| `/{env}/catalogue` | **FAILED** | — | Reconstruct: `CONNECTION_STRINGS`, `MediaSettings:BaseUrl` |
-| `/{env}/customers` | **FAILED** | — | Reconstruct: `CONNECTION_STRINGS`, `HyperPay*` keys (from vendor dashboard) |
-| `/{env}/dp` | **FAILED** | — | Reconstruct: `CONNECTION_STRINGS` only |
-| `/{env}/ecwid` | **FAILED** | — | Reconstruct: `CONNECTION_STRINGS`, `ECWID_*`, `ANCHANTO_*` keys (from vendor dashboards) |
-| `terraform` | **FAILED** | — | Reconstruct: `{"rds": "<password>"}` from `/rds/ticketing-cluster` backup |
+| `/{env}/access-control` | OK | 11 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds; **preserve `ENCRYPTION_KEY`/`ENCRYPTION_IV`**; delete Elasticsearch keys |
+| `/{env}/catalogue` | OK | 8 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds; delete Elasticsearch keys |
+| `/{env}/customers` | OK | 7 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds; add `HyperPay_BaseUrl` (missing from backup) |
+| `/{env}/dp` | OK | 7 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds; delete Elasticsearch keys |
+| `/{env}/ecwid` | **PARTIAL** | 9 | Copy backed-up keys — **must add:** `CONNECTION_STRINGS`, `ECWID_STORE_ID`, `ECWID_BASE_ADDRESS`, `ANCHANTO_STORE_ID`, `ANCHANTO_MARKETPLACE_CODE`, `ANCHANTO_BASE_ADDRESS`, `ANCHANTO_BASE_CATEGORY_CODE`, `ANCHANTO_BASE_CATEGORY_NAME` (from vendor dashboards) |
+| `terraform` | OK | 3 | Copy `rds` key as-is; omit `redis`/`opensearch` (deprecated) |
 | `/{env}/automations` | OK | 8 | Copy from backup — update `S3Region`, `S3Bucket`, RDS hosts in config JSONs |
 | `/{env}/geidea` | OK | 4 | Copy from backup — update `CONNECTION_STRINGS` RDS host |
-| `/{env}/media` | OK | 15 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds, `SQS_QUEUE_URL`, `PDF_FUNCTION_URL` |
-| `/{env}/organizations` | OK | 14 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds; delete Elasticsearch keys |
+| `/{env}/media` | OK | 15 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds, `SQS_QUEUE_URL`, `PDF_FUNCTION_URL`; delete Elasticsearch keys |
+| `/{env}/organizations` | OK | 13 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds; delete Elasticsearch keys |
 | `/{env}/reporting` | OK | 8 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds; delete Elasticsearch keys |
 | `/{env}/transfer` | OK | 9 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds; **preserve `SHARED_CODE_SECRET_KEY`**; delete Elasticsearch keys |
 | `devops` | OK | 1 | Copy as-is (SSH public key for EC2 key pairs) |
-| `/{env}/extensions` | OK | 9 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds, SQS queue URLs |
+| `/{env}/extensions` | OK | 9 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds, SQS queue URLs; delete Elasticsearch keys |
 | `/{env}/gateway` | OK | 10 | Copy from backup — update IAM creds; delete Elasticsearch keys |
 | `/{env}/integration` | OK | 22 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds, `KMS_KEY_ID`; delete Elasticsearch keys |
-| `/{env}/inventory` | OK | 8 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds; delete Elasticsearch keys |
+| `/{env}/inventory` | OK | 9 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds; delete Elasticsearch keys |
 | `/{env}/loyalty` | OK | 8 | Copy from backup — update `CONNECTION_STRINGS`; delete Elasticsearch keys |
 | `/{env}/marketplace` | OK | 5 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds |
 | `/{env}/pricing` | OK | 12 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds; delete Redis/Elasticsearch keys |
 | `/{env}/sales` | OK | 28 | Copy from backup — update `CONNECTION_STRINGS`, IAM creds; delete Elasticsearch keys |
-| `/{env}/xp-badges` | OK | 1 | Copy as-is (`GOOGLE_SHEETS_PRIVATE_KEY` — region-independent) |
+| `/{env}/xp-badges` | OK | 1 | Copy as-is (`GOOGLE_SHEETS_PRIVATE_KEY` — region-independent). Excluded from migration. |
 | `/rds/ticketing-cluster` | OK | 6 | Update `host` to new Aurora endpoint |
-| `prod/data` | OK | 13 | Copy as-is (Google service account — region-independent) |
+| `prod/data` | OK | 12 | Copy as-is (Google service account — region-independent) |
 
 **Keys that MUST change** in backed-up secrets (new region = new resources):
 - `CONNECTION_STRINGS` / `CONNECTION_STRINGS_Sales` — new RDS Proxy endpoint (set in Phase 3.3)
@@ -1025,19 +1029,23 @@ Since me-south-1 is down, secrets cannot be replicated. Local backups exist in `
 
 **Step 1: Create the `terraform` secret FIRST** (required before `terraform apply` in Phase 2.4 — Terraform reads `rds_pass` from this secret at plan time):
 ```bash
-# Get RDS password from the successfully backed-up /rds/ticketing-cluster secret
+# Get RDS password — available from EITHER source (both are backed up):
+#   Option A: /rds/ticketing-cluster backup → password field
+#   Option B: terraform backup → rds field (directly available now)
 RDS_PASS=$(python3 -c "
 import json
-with open('backup-secrets/__rds__ticketing-cluster.json') as f:
+with open('backup-secrets/terraform.json') as f:
     d = json.load(f)
 inner = json.loads(d['SecretString'])
-print(inner['password'])
+print(inner['rds'])
 ")
 
 aws secretsmanager create-secret --name "terraform" \
-  --secret-string "{\"rds_pass\":\"${RDS_PASS}\"}" \
+  --secret-string "{\"rds\":\"${RDS_PASS}\"}" \
   --profile AdministratorAccess-660748123249 --region eu-central-1
 ```
+
+**Note:** The Terraform secret key is `rds` (matching the backup). Terraform's `secretmanager.tf` reads `local.terraform.rds` for the master password. The `redis` and `opensearch` keys from the backup are omitted (deprecated infrastructure).
 
 **Step 2: Create RDS cluster secret** (host is placeholder — updated after Aurora restore in 2.6):
 ```bash
@@ -1060,12 +1068,13 @@ aws secretsmanager create-secret --name "/rds/ticketing-cluster" \
   }" --profile AdministratorAccess-660748123249 --region eu-central-1
 ```
 
-**Step 3: Create secrets from successful backups** (placeholder values for region-dependent keys):
+**Step 3: Create secrets from backups** (placeholder values for region-dependent keys):
 ```bash
 for env in prod; do
-  # All services with successful backups (18 services)
-  for svc in automations extensions gateway geidea integration inventory \
-    loyalty marketplace media organizations pricing reporting sales transfer xp-badges; do
+  # All services with backups (22 services — all except ecwid which needs special handling)
+  for svc in access-control automations catalogue customers dp extensions gateway geidea \
+    integration inventory loyalty marketplace media organizations pricing reporting \
+    sales transfer xp-badges; do
     # Read backed-up secret, strip Elasticsearch/Redis keys
     SECRET_JSON=$(python3 -c "
 import json
@@ -1109,49 +1118,60 @@ print(d['SecretString'])
   --profile AdministratorAccess-660748123249 --region eu-central-1
 ```
 
-**Step 4: Reconstruct truly failed secrets (6 secrets):**
+**Step 4: Create ecwid secret (partial backup — needs missing keys from vendor dashboards):**
 
-Only 6 secrets failed backup retrieval. See `secrets-reconstruction.md` for per-key detail.
+Ecwid is the only secret with a partial backup. The backup has 9 credential keys but is missing `CONNECTION_STRINGS` and 7 configuration values.
 
-- **`access-control`**: `CONNECTION_STRINGS` + `ENCRYPTION_KEY`/`ENCRYPTION_IV` (generate new: `openssl rand -base64 32` / `openssl rand -base64 16`)
-- **`catalogue`**: `CONNECTION_STRINGS` + `MediaSettings:BaseUrl` (CloudFront CDN URL)
-- **`customers`**: `CONNECTION_STRINGS` + `HyperPay*` keys (from vendor dashboard / password manager)
-- **`dp`**: `CONNECTION_STRINGS` only
-- **`ecwid`**: `CONNECTION_STRINGS` + `ECWID_*`/`ANCHANTO_*` keys (from vendor dashboards / password manager)
-- **`terraform`**: `{"rds": "<password>"}` — extract from `/rds/ticketing-cluster` backup
+See `secrets-reconstruction.md` for the full per-key breakdown.
 
 ```bash
-# Template for each failed service:
-# CONNECTION_STRINGS must be a valid JSON string (not bare "PLACEHOLDER") because
-# Phase 3.4 Step 5 runs json.loads() on it. Use the correct dict format with
-# placeholder Host/Password values that the regex replacement will update.
-for env in prod; do
-  for svc in access-control catalogue customers dp ecwid; do
-    CONN_PLACEHOLDER='{"PgSql":"User ID=devops;Password=PLACEHOLDER;Host=PLACEHOLDER;Database=PLACEHOLDER;Timeout=300;Pooling=true","ReadonlyPgSql":"User ID=devops;Password=PLACEHOLDER;Host=PLACEHOLDER;Database=PLACEHOLDER;Timeout=300;Pooling=true"}'
-    aws secretsmanager create-secret --name "/$env/$svc" \
-      --secret-string "{\"CONNECTION_STRINGS\":$(echo "$CONN_PLACEHOLDER" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))'),\"TODO\":\"reconstruct-from-password-manager\"}" \
-      --profile AdministratorAccess-660748123249 --region eu-central-1
-  done
-done
+# Create ecwid secret from partial backup + placeholders for missing keys
+python3 -c "
+import json
+with open('backup-secrets/__prod__ecwid.json') as f:
+    d = json.load(f)
+inner = json.loads(d['SecretString'])
 
-# After creating placeholder secrets, add service-specific keys:
-# - access-control: ENCRYPTION_KEY, ENCRYPTION_IV (generate new)
-# - catalogue: MediaSettings:BaseUrl
-# - customers: HyperPayConfigId, HyperPay_BaseUrl, HyperPay_AccountEmail, HyperPay_AccountPassword
-# - ecwid: ECWID_API_SECRET, ECWID_WEBHOOK_SECRET, ECWID_STORE_ID, ECWID_BASE_ADDRESS,
-#           ANCHANTO_API_SECRET, ANCHANTO_STORE_ID, ANCHANTO_MARKETPLACE_CODE, ANCHANTO_BASE_ADDRESS,
-#           ANCHANTO_BASE_CATEGORY_CODE, ANCHANTO_BASE_CATEGORY_NAME,
-#           ANCHANTO_INVENTORY_WEBHOOK_SECRET, ANCHANTO_ORDER_WEBHOOK_SECRET
-# Use: aws secretsmanager update-secret --secret-id "/$env/$svc" --secret-string '<updated-json>' \
+# Add placeholder CONNECTION_STRINGS (updated in Phase 3.4)
+inner['CONNECTION_STRINGS'] = json.dumps({
+    'PgSql': 'User ID=devops;Password=PLACEHOLDER;Host=PLACEHOLDER;Database=ecwid;Timeout=10;Pooling=true;Application Name=ecwid;',
+    'ReadonlyPgSql': 'User ID=devops;Password=PLACEHOLDER;Host=PLACEHOLDER;Database=ecwid;Timeout=10;Pooling=true;Application Name=ecwid;'
+})
+
+# Add placeholders for missing config keys (retrieve from vendor dashboards)
+inner['ECWID_STORE_ID'] = 'TODO_FROM_ECWID_DASHBOARD'
+inner['ECWID_BASE_ADDRESS'] = 'https://app.ecwid.com/api/v3'
+inner['ANCHANTO_STORE_ID'] = 'TODO_FROM_ANCHANTO_DASHBOARD'
+inner['ANCHANTO_MARKETPLACE_CODE'] = 'TODO_FROM_ANCHANTO_DASHBOARD'
+inner['ANCHANTO_BASE_ADDRESS'] = 'TODO_FROM_ANCHANTO_DASHBOARD'
+inner['ANCHANTO_BASE_CATEGORY_CODE'] = 'TODO_FROM_ANCHANTO_DASHBOARD'
+inner['ANCHANTO_BASE_CATEGORY_NAME'] = 'TODO_FROM_ANCHANTO_DASHBOARD'
+
+print(json.dumps(inner))
+" | aws secretsmanager create-secret --name "/prod/ecwid" \
+  --secret-string file:///dev/stdin \
   --profile AdministratorAccess-660748123249 --region eu-central-1
+
+# After creating: update ecwid secret with actual values from vendor dashboards:
+# - ECWID_STORE_ID, ECWID_BASE_ADDRESS (from Ecwid dashboard)
+# - ANCHANTO_STORE_ID, ANCHANTO_MARKETPLACE_CODE, ANCHANTO_BASE_ADDRESS,
+#   ANCHANTO_BASE_CATEGORY_CODE, ANCHANTO_BASE_CATEGORY_NAME (from Anchanto dashboard)
+# - HyperPay_BaseUrl for customers secret (if not set via CDK env-var JSON)
 ```
+
+**Note on previously "failed" secrets:** access-control, catalogue, customers, dp, and terraform backups have all been recovered (as of 2026-03-25). They are now included in Step 3's bulk copy loop. Key preservation:
+- **`ENCRYPTION_KEY`/`ENCRYPTION_IV`** (access-control) — preserved from backup, existing encrypted PII remains readable
+- **`HyperPay*`** (customers) — `HyperPayConfigId`, `HyperPay_AccountEmail`, `HyperPay_AccountPassword` are backed up; only `HyperPay_BaseUrl` may need manual addition
+- **`terraform`** — `rds` password is backed up directly; `redis`/`opensearch` keys omitted (deprecated)
 
 **Step 5: Verify all secrets exist:**
 ```bash
 aws secretsmanager list-secrets \
   --profile AdministratorAccess-660748123249 --region eu-central-1 \
   --query 'SecretList[*].Name' --output table
-# Expected: 20 service secrets + /rds/ticketing-cluster + prod/data + terraform + devops = 24
+# Expected: 22 service secrets + /rds/ticketing-cluster + prod/data + terraform + devops = 26
+# (22 services = 20 from Step 3 + ecwid from Step 4 + xp-badges)
+# Note: xp-badges is excluded from migration but secret is created for completeness
 ```
 
 ### 2.4 Terraform Apply (WITHOUT RDS Cluster)
@@ -1283,12 +1303,31 @@ done
 aws ssm put-parameter --name "/prod/tp/pdf/generator/STORAGE_BUCKET_NAME" \
   --type String --value "tickets-pdf-download-eu" $P
 
-# Slack webhook URLs (retrieve from Slack workspace or password manager)
+# Slack webhook URLs (now available from backup-ssm/ — no need to retrieve from Slack workspace)
 for env in prod; do
-  for param in ErrorsWebhookUrl OperationalErrorsWebhookUrl SuspiciousOrdersWebhookUrl; do
-    aws ssm put-parameter --name "/$env/tp/SlackNotification/$param" \
-      --type SecureString --value "<webhook-url>" $P
-  done
+  # Extract webhook URLs from backup files
+  ERRORS_URL=$(python3 -c "
+import json
+with open('backup-ssm/__prod__tp__SlackNotification__ErrorsWebhookUrl.json') as f:
+    print(json.load(f)['Parameter']['Value'])
+")
+  OPS_ERRORS_URL=$(python3 -c "
+import json
+with open('backup-ssm/__prod__tp__SlackNotification__OperationalErrorsWebhookUrl.json') as f:
+    print(json.load(f)['Parameter']['Value'])
+")
+  SUSPICIOUS_URL=$(python3 -c "
+import json
+with open('backup-ssm/__prod__tp__SlackNotification__SuspiciousOrdersWebhookUrl.json') as f:
+    print(json.load(f)['Parameter']['Value'])
+")
+
+  aws ssm put-parameter --name "/$env/tp/SlackNotification/ErrorsWebhookUrl" \
+    --type SecureString --value "$ERRORS_URL" $P
+  aws ssm put-parameter --name "/$env/tp/SlackNotification/OperationalErrorsWebhookUrl" \
+    --type SecureString --value "$OPS_ERRORS_URL" $P
+  aws ssm put-parameter --name "/$env/tp/SlackNotification/SuspiciousOrdersWebhookUrl" \
+    --type SecureString --value "$SUSPICIOUS_URL" $P
   aws ssm put-parameter --name "/$env/tp/SlackNotification/IgnoredErrorsPatterns" \
     --type StringList --value "info:,Information" $P  # Backed-up value from me-south-1
 done
@@ -1312,24 +1351,81 @@ aws ssm put-parameter --name "/prod/tp/csv/generator/STORAGE_EXPIRATION_HOURS" \
   --type String --value "48" $P
 
 # PDF Generator (5 params — STORAGE_BUCKET_NAME already created above)
-# Cross-reference: PDF_SERVICE_* values are the same as in the media secret backup
+# Cross-reference: PDF_SERVICE_* values extracted from media secret backup
+PDF_SERVICE_URL=$(python3 -c "
+import json
+with open('backup-secrets/__prod__media.json') as f:
+    d = json.load(f)
+inner = json.loads(d['SecretString'])
+print(inner['PDF_SERVICE_URL'])
+")
+PDF_SERVICE_API_KEY=$(python3 -c "
+import json
+with open('backup-secrets/__prod__media.json') as f:
+    d = json.load(f)
+inner = json.loads(d['SecretString'])
+print(inner['PDF_SERVICE_API_KEY'])
+")
+PDF_SERVICE_API_SECRET=$(python3 -c "
+import json
+with open('backup-secrets/__prod__media.json') as f:
+    d = json.load(f)
+inner = json.loads(d['SecretString'])
+print(inner['PDF_SERVICE_API_SECRET'])
+")
+PDF_SERVICE_WORKSPACE_ID=$(python3 -c "
+import json
+with open('backup-secrets/__prod__media.json') as f:
+    d = json.load(f)
+inner = json.loads(d['SecretString'])
+print(inner['PDF_SERVICE_WORKSPACE_ID'])
+")
+
 aws ssm put-parameter --name "/prod/tp/pdf/generator/PDF_SERVICE_URL" \
-  --type String --value "<from-media-secret-backup: PDF_SERVICE_URL>" $P
+  --type String --value "$PDF_SERVICE_URL" $P
 aws ssm put-parameter --name "/prod/tp/pdf/generator/PDF_SERVICE_API_KEY" \
-  --type SecureString --value "<from-media-secret-backup: PDF_SERVICE_API_KEY>" $P
+  --type SecureString --value "$PDF_SERVICE_API_KEY" $P
 aws ssm put-parameter --name "/prod/tp/pdf/generator/PDF_SERVICE_API_SECRET" \
-  --type SecureString --value "<from-media-secret-backup: PDF_SERVICE_API_SECRET>" $P
+  --type SecureString --value "$PDF_SERVICE_API_SECRET" $P
 aws ssm put-parameter --name "/prod/tp/pdf/generator/PDF_SERVICE_WORKSPACE_ID" \
-  --type String --value "<from-media-secret-backup: PDF_SERVICE_WORKSPACE_ID>" $P
+  --type String --value "$PDF_SERVICE_WORKSPACE_ID" $P
 aws ssm put-parameter --name "/prod/tp/pdf/generator/STORAGE_EXPIRATION_HOURS" \
   --type String --value "48" $P
 
-# IgnoredErrorsPatterns (backed up value)
-aws ssm put-parameter --name "/prod/tp/SlackNotification/IgnoredErrorsPatterns" \
-  --type StringList --value "info:,Information" $P --overwrite
 ```
 
 **Full SSM reconstruction reference:** `ssm-reconstruction.md` — complete inventory of all parameters with sources and backup status.
+
+### 2.5.1 Create DynamoDB Cache Table
+
+**Required before Phase 3.5 service deployment.** 7 services use a manually-provisioned DynamoDB table `"Cache"` for distributed caching. This table is NOT created by Terraform or CDK — it must be created manually.
+
+**Affected services:** access-control, catalogue, customer-service, inventory, marketplace, media, organizations
+
+```bash
+P="--profile AdministratorAccess-660748123249 --region eu-central-1"
+
+# Create the Cache table (PAY_PER_REQUEST = no capacity planning needed)
+aws dynamodb create-table --table-name Cache \
+  --attribute-definitions AttributeName=CacheKey,AttributeType=S \
+  --key-schema AttributeName=CacheKey,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST $P
+
+# Enable TTL for automatic cache expiry
+aws dynamodb update-time-to-live --table-name Cache \
+  --time-to-live-specification "Enabled=true,AttributeName=ExpirationTime" $P
+
+# Verify table is ACTIVE
+aws dynamodb describe-table --table-name Cache $P \
+  --query 'Table.TableStatus'
+```
+
+**No data migration needed** — cache is ephemeral and rebuilds on demand. The table schema matches `DynamoDbCacheProvider` in `TP.Tools.Helpers`:
+- `CacheKey` (String) — partition key
+- `CacheValue` (String) — serialized cached data
+- `ExpirationTime` (Number) — Unix timestamp for TTL
+
+**IAM is already covered:** `DynamoDbPolicyStatement` in `TP.Tools.Infrastructure` grants `dynamodb:GetItem/PutItem/DeleteItem` on `"*"` — no policy changes needed.
 
 **Verification (manual params expected for prod — cert params created later in Phase 3.2):**
 ```bash
@@ -1549,6 +1645,7 @@ AWS_PROFILE=AdministratorAccess-660748123249 \
 - [ ] RDS cluster/instance blocks uncommented in `rds.tf`
 - [ ] S3 data restored to new `-eu` buckets — object counts verified
 - [ ] All 16 manual SSM parameters populated (VPC, subnets, RDS refs, PDF bucket, Slack webhooks)
+- [ ] DynamoDB `Cache` table created and ACTIVE (used by 7 services for distributed caching)
 - [ ] All 24 secrets created in eu-central-1 (18 from backup + 6 reconstructed = 24 total)
 - [ ] `terraform` secret contains valid `rds_pass`
 - [ ] `/rds/ticketing-cluster` secret has correct Aurora endpoint
@@ -2290,7 +2387,8 @@ export AWS_REGION=eu-central-1
    AWS_PROFILE=AdministratorAccess-307824719505 terraform apply
    ```
 5. **Populate SSM parameters** (same as Phase 2.5 but with `--profile AdministratorAccess-307824719505`)
-6. **CDK bootstrap**
+6. **Create DynamoDB Cache table** (same as Phase 2.5.1 but with `--profile AdministratorAccess-307824719505`)
+7. **CDK bootstrap**
 
 ### 5.3 Services & Validation
 

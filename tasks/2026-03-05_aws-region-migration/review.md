@@ -1,8 +1,8 @@
 # AWS Region Migration Plan Review
 
 **Plan:** `.personal/tasks/2026-03-05_aws-region-migration/plan.md`
-**Reviewed:** 2026-03-25 (Round 9)
-**Method:** 9 review rounds with 53+ parallel agents + AWS CLI live verification against me-south-1 prod account (660748123249). Round 8 validated: S3 buckets, Lambda functions, RDS cluster, SQS queues, Secrets Manager, Route53 zones, DNS records, CloudFront distributions, EventBridge buses, KMS keys, IAM users, and AWS Backup recovery points in eu-central-1. Round 9: 7 parallel agents cross-referencing CDK domain mappings, Terraform EKS deprecation, me-south-1 full sweep, CDK stack verification, secrets/SSM tracing, S3 bucket naming propagation, CI/CD workflows, and connection string/SQS update procedures.
+**Reviewed:** 2026-03-25 (Round 10)
+**Method:** 10 review rounds with 60+ parallel agents + AWS CLI live verification against me-south-1 prod account (660748123249). Round 8 validated: S3 buckets, Lambda functions, RDS cluster, SQS queues, Secrets Manager, Route53 zones, DNS records, CloudFront distributions, EventBridge buses, KMS keys, IAM users, and AWS Backup recovery points in eu-central-1. Round 9: 7 parallel agents cross-referencing CDK domain mappings, Terraform EKS deprecation, me-south-1 full sweep, CDK stack verification, secrets/SSM tracing, S3 bucket naming propagation, CI/CD workflows, and connection string/SQS update procedures. Round 10: 7 parallel agents — hardcoded endpoint/URL verification, Terraform file cross-reference, CDK domain mapping + stack verification, secrets/SSM reconstruction verification, S3 bucket naming propagation, CI/CD workflow audit, and missed dependency analysis (DynamoDB, health checks, Docker, cron, CloudWatch, Gateway routing).
 
 - [Executive Summary](#executive-summary)
   - [Verdict by Phase](#verdict-by-phase)
@@ -50,7 +50,7 @@
 
 ## Executive Summary
 
-The migration plan is comprehensive and addresses ~98% of the migration scope. **Round 9** performed comprehensive codebase cross-referencing with 7 parallel agents verifying CDK domain mappings, Terraform EKS deprecation, me-south-1 reference sweep, CDK stack names/order, secrets/SSM parameters, S3 bucket naming propagation, CI/CD workflows, and connection string/SQS procedures. **Round 9 found 1 high-priority issue** (Phase 3 temporary domain breaks inter-service calls for loyalty/automations/ecwid/geidea services that don't load SSM InternalServices overrides) and **3 medium-priority corrections** (CONNECTION_STRINGS_Sales key doesn't exist, SQS_QUEUE_URL updates for non-extension services are harmless but unnecessary, automations TicketSender has hardcoded gateway URL). The plan's core structure remains sound. All prior critical/high issues from Rounds 7-8 remain resolved.
+The migration plan is comprehensive and addresses ~99% of the migration scope. **Round 10** performed deep codebase cross-referencing with 7 parallel agents verifying hardcoded endpoints/URLs, Terraform file contents at exact line numbers, CDK domain mappings and stack names, secret reconstruction procedures, S3 bucket naming propagation, CI/CD workflow patterns, and missed dependencies (DynamoDB, health checks, cron schedules, Gateway routing). **Round 10 found 1 high-priority issue** (DynamoDB "Cache" table used by 7 services is not provisioned by Terraform or CDK and is missing from the migration plan) and **1 low-priority finding** (Gateway health check fallback URLs use bare `internal.tickets.mdlbeast.net` without environment prefix). All prior issues from Rounds 7-9 remain resolved. The plan's core structure is production-ready.
 
 ### Verdict by Phase
 
@@ -68,9 +68,69 @@ The migration plan is comprehensive and addresses ~98% of the migration scope. *
 | Severity | Count | IDs |
 |----------|-------|-----|
 | CRITICAL | 0 | All resolved |
-| HIGH | 1 | ISSUE-39 (Phase 3 inter-service calls broken for loyalty/automations/ecwid/geidea) |
+| HIGH | 1 | ISSUE-39 (Phase 3 inter-service calls broken for loyalty/automations/ecwid/geidea — accepted limitation) |
 | MEDIUM | 5 | ISSUE-9, ISSUE-11, ISSUE-40, ISSUE-41, ISSUE-42 |
-| LOW | 1 | ISSUE-38 (IDE workspace files) |
+| LOW | 2 | ISSUE-38 (IDE workspace files), ISSUE-44 (Gateway health check fallback URLs) |
+
+---
+
+## High-Priority Issues (Round 10)
+
+### ISSUE-43: DynamoDB "Cache" Table Missing from Migration Plan — RESOLVED
+
+**Severity:** HIGH | **Phase:** 2.5 | **Status:** RESOLVED — added as Phase 2.5.1 (prod) and Phase 5.2 step 6 (dev/sandbox), plus Phase 2 verification checklist
+
+**7 services** use a DynamoDB table named `"Cache"` for distributed caching. This table is **not created by Terraform or CDK** — it was manually provisioned in me-south-1. The migration plan does not mention creating it in eu-central-1.
+
+**Affected services:**
+| Service | Registration File | Table Name |
+|---------|-------------------|------------|
+| access-control (API + Consumers) | `CommonStartup.cs:119`, `ServiceProviderBuilder.cs:98` | `"Cache"` |
+| catalogue | `CommonStartup.cs:141` | `"Cache"` |
+| customer-service | `CommonStartup.cs:104` | `"Cache"` |
+| inventory | `ServiceExtension.cs:24` | `"Cache"` |
+| marketplace | `CommonStartup.cs:100` | `"Cache"` |
+| media | `CommonStartup.cs:87` | `"Cache"` |
+| organizations | `CommonStartup.cs:107` | `"Cache"` |
+
+**How it works:** Each service registers `DynamoDbCacheProvider` (from `TP.Tools.Helpers`) with `AmazonDynamoDBClient` (no explicit region — inherits Lambda's `AWS_REGION`). The client will automatically look for table `"Cache"` in eu-central-1.
+
+**Impact:** Without the table, all 7 services will throw `ResourceNotFoundException` on every cache read/write. Caching is used for performance (not data integrity), so services won't crash entirely, but:
+- Every cached operation hits the database directly instead
+- Error logs will be flooded with DynamoDB exceptions
+- Cold-start performance degraded (no cache warming)
+
+**IAM is covered:** The `DynamoDbPolicyStatement` in `TP.Tools.Infrastructure` uses wildcard `"*"` for DynamoDB resources, so no IAM changes needed.
+
+**CDK-managed DynamoDB table is separate:** The `xray-insight-dedupe-{env}` table created by `XRayInsightNotificationStack` is CDK-managed and will be auto-created in Phase 3.3 step 10. This is NOT the same table.
+
+**Recommendation:** Add to Phase 2.5 (after Terraform apply, before CDK deploy):
+```bash
+P="--profile AdministratorAccess-660748123249 --region eu-central-1"
+
+aws dynamodb create-table --table-name Cache \
+  --attribute-definitions AttributeName=CacheKey,AttributeType=S \
+  --key-schema AttributeName=CacheKey,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST $P
+
+aws dynamodb update-time-to-live --table-name Cache \
+  --time-to-live-specification "Enabled=true,AttributeName=ExpirationTime" $P
+```
+No data migration needed — cache is ephemeral. For Phase 5 (dev/sandbox), create the same table in the dev account.
+
+---
+
+## Low-Priority Issues (Round 10)
+
+### ISSUE-44: Gateway Health Check Fallback URLs Missing Environment Prefix
+
+**Severity:** LOW | **Phase:** Post-migration | **Status:** OPEN
+
+`ticketing-platform-gateway/src/Gateway/Features/ServicesHealthCheck/HealthCheckHandler.cs:90-107` has 13 hardcoded fallback health check URLs using `*.internal.tickets.mdlbeast.net` (no environment prefix like `production` or `dev`).
+
+These are **only used** when `TicketingPlatformClient.GetBaseAddress()` returns nothing for ALL services (line 81-87), which requires SSM InternalServices params to be completely missing. In production, SSM params are loaded at cold start, so these defaults should never be reached.
+
+**Impact:** None during migration. Low risk of hitting fallback. Post-migration, update these URLs to include the environment prefix pattern for correctness.
 
 ---
 
@@ -367,8 +427,11 @@ All items below were identified across 5 review rounds and are now fully address
 - Round 9 me-south-1 sweep (184 files): all covered by plan's 12 categories — no new uncovered references found ✓
 - Round 9 domain mapping verification: all 7 files confirmed at exact line numbers with correct patterns ✓
 - Excluded services (xp-badges, bandsintown, marketing-feeds) correctly have the domain pattern but are out of scope ✓
+- Round 10: all 7 domain mapping files re-verified at exact line numbers with exact patterns ✓
+- Round 10: no additional domain mapping files found outside the plan's 7 (xp-badges excluded correctly) ✓
 
 ### Architecture
+- Round 10: DynamoDbPolicyStatement uses wildcard `"*"` — no region-specific ARNs in IAM ✓
 - Greenfield infrastructure approach (new Terraform state) avoids state conflicts ✓
 - EventBridge/SQS naming is region-agnostic ✓
 - 18 consumer services confirmed via `ConsumersServices` enum ✓
@@ -407,6 +470,9 @@ All items below were identified across 5 review rounds and are now fully address
 - Round 9 CI/CD audit: 35 repos confirmed needing AWS_DEFAULT_REGION secret update; CDK templates (deploy-cdk.yml, build.yml, tests.yml) all use secret variables correctly ✓
 - EKS workflows (deploy.yml, k8s.yml) confirmed dead code with hardcoded me-south-1 — plan correctly marks for removal ✓
 - Special secrets (AWS_DEFAULT_REGION_PROD, TP_AWS_DEFAULT_REGION_PROD, CDK_DEFAULT_REGION) confirmed in correct repos ✓
+- Round 10: k8s.yml has 6 hardcoded me-south-1 refs (plan said 2) — all EKS dead code, same scope ✓
+- Round 10: configmap auto-deploy workflows (ci.yml, disaster.yml) all use secret-based region ✓
+- Round 10: no services have non-standard CI/CD outside shared templates (all use `@master` reference) ✓
 
 ### Terraform
 - AWS provider version 4.67.0 is region-agnostic ✓
@@ -424,6 +490,11 @@ All items below were identified across 5 review rounds and are now fully address
 - Round 9 Terraform modifications: all cross-references (rds.tf ingress rules, group.tf IAM attachments, secretmanager.tf outputs) confirmed at exact line numbers ✓
 - `iam-s3-sqs.tf` `s3-sqs-eks` policy confirmed EKS-only (comment says "iam for eks serviceaccount"), no other references — safe to delete ✓
 - `user-cicd.tf` EKS policy attachment confirmed isolated — safe to delete ✓
+- Round 10: all Terraform file contents verified at exact line numbers — zero discrepancies found ✓
+- Round 10: main.tf backend bucket (`ticketing-terraform-prod`) and region (`me-south-1`) confirmed ✓
+- Round 10: secretmanager.tf hardcoded ARN confirmed at line 4, outputs terraform_opensearch/terraform_redis confirmed ✓
+- Round 10: variables.tf plaintext creds (opensearch_pass:96, rds_pass:116, rds_pass_inventory:125) and AMI (line 65) confirmed ✓
+- Round 10: CloudFront uses dynamic `bucket_regional_domain_name` reference — no hardcoded bucket URLs ✓
 
 ### SSM Parameters & Secrets
 - Secret path pattern `/{env}/{service}` confirmed via SecretManagerHelper code (Round 6) ✓
@@ -461,6 +532,13 @@ All items below were identified across 5 review rounds and are now fully address
 - IAM: `cicd` user confirmed ✓
 - eu-central-1 is clean: 0 Lambda functions, 0 SQS queues, no CDK bootstrap ✓
 
+### DynamoDB (Round 10 — New Finding)
+- 7 services use manually-provisioned DynamoDB table `"Cache"` for distributed caching (ISSUE-43) — NOT created by Terraform or CDK
+- `AmazonDynamoDBClient` instantiated without explicit region — inherits Lambda `AWS_REGION` (auto-resolves to eu-central-1)
+- `DynamoDbPolicyStatement` uses wildcard `"*"` for resources — IAM is safe
+- CDK-managed `xray-insight-dedupe-{env}` table is separate (created by XRayInsightNotificationStack)
+- Table schema: `CacheKey` (string, HASH), `CacheValue` (string), `ExpirationTime` (number, TTL)
+
 ### SSM Parameters & Secrets (Round 9 Reconfirmation)
 - All 16 service secret paths verified via `SecretManagerHelper.LoadSecretsToEnvironmentAsync` — 100% match with plan ✓
 - CSV generator SSM path `/{env}/tp/csv/generator/*` confirmed in Function.cs:102 ✓
@@ -468,6 +546,10 @@ All items below were identified across 5 review rounds and are now fully address
 - All 16 manual SSM parameters in plan's Phase 2.5 confirmed required by CDK code reads ✓
 - Secret names match code exactly (e.g., `/prod/customers` not `/prod/customer-service`) ✓
 - Only extension services read SQS queue URLs from env vars (`EXTENSION_DEPLOYER_SQS_QUEUE_URL`, `EXTENSION_EXECUTOR_SQS_QUEUE_URL`) — other services use EventBridge ✓
+- Round 10: ecwid-integration confirmed using custom `GetSecretValueAsync` (not SecretManagerHelper) — plan's note is correct ✓
+- Round 10: loyalty and automations confirmed using custom `ReadSecrets()` methods — plan's ISSUE-39 re-verified ✓
+- Round 10: 22 backup secret files found in `backup-secrets/` — naming matches plan's expected format ✓
+- Round 10: all 15 standard SecretManagerHelper services verified with exact secret paths ✓
 
 ### Third-Party Integrations
 - Auth0, Checkout.com, SendGrid, Sentry, Seats.io — all SaaS, region-agnostic ✓
@@ -522,6 +604,7 @@ Verified prod account `660748123249` via AWS CLI. Corrections applied:
 | ~~RDS Proxy incompatibility (untested)~~ | ~~MEDIUM~~ | ~~HIGH~~ | Using direct Aurora endpoints; RDS Proxy on standby — ISSUE-36 | RESOLVED |
 | ~~Restore metadata ignores security group~~ | ~~MEDIUM~~ | ~~HIGH~~ | Post-restore SG verification step added — ISSUE-37 | RESOLVED |
 | Phase 3 inter-service calls fail for 4 services | HIGH | MEDIUM | loyalty/automations/ecwid/geidea don't load SSM InternalServices; accept as Phase 3 limitation — ISSUE-39 | OPEN |
+| ~~DynamoDB "Cache" table missing in eu-central-1~~ | ~~HIGH~~ | ~~MEDIUM~~ | Added as Phase 2.5.1 and Phase 5.2 step 6 — ISSUE-43 | RESOLVED |
 | NS delegation at parent domain | MEDIUM | HIGH | Update parent zone NS records after Terraform creates new zones | OPEN |
 | S3 bucket names in env-var JSON | MEDIUM | MEDIUM | Manual update needed for `-eu` suffix in ~7 env-var files | OPEN |
 | AWS Backup restore fails or data stale | LOW | CRITICAL | Verify backup recency; test on dev first | OPEN |
@@ -658,10 +741,11 @@ Complete matrix for Phase 3.4 and Phase 5.4. **All 23 services.**
 
 ---
 
-*Review completed: 2026-03-25 (Round 9)*
+*Review completed: 2026-03-25 (Round 10)*
 *Validated against: 30+ service repositories, Terraform configs, CDK stacks, CI/CD workflows, ConfigMaps*
 *Round 5: 6 parallel agents — missing services CDK audit, Terraform cross-references, uncovered me-south-1 references, SSM parameters, GitHub secrets, S3 buckets*
 *Round 5+: 3 parallel agents — comprehensive SSM audit, S3 bucket naming propagation, Route53 DNS rerouting analysis*
 *Round 6: 8 parallel agents — env-var JSON coverage (53 files verified), aws-lambda-tools-defaults count (42 confirmed), uncovered me-south-1 sweep (all source code covered), CDK stack verification (11 infra + 23 service stacks match), Terraform EKS deprecation scope (all files confirmed), secrets/SSM parameter tracing (paths verified via code), CI/CD workflow audit (36 repos, all secrets correct), S3 bucket reference audit (17 buckets, all covered)*
 *Round 7: 8 parallel agents — CDK domain mapping verification (6/7 correct, ecwid missing), Terraform EKS cross-references (all files confirmed with line numbers), me-south-1 full sweep (958 refs, all covered by 12 categories), CDK Program.cs stack verification (24 services + infrastructure all match), S3 bucket + secrets path verification (17 buckets, all secret paths confirmed), connection strings + SQS queue naming analysis (3 critical issues found), CI/CD workflow audit (36 repos + ecwid confirmed), DNS cutover logic analysis (CNAME transition gap identified), Aurora restore procedure verification (identifier mismatch and metadata concerns found)*
 *Round 9: 7 parallel agents — CDK domain mapping re-verification (all 7 files confirmed, excluded services correctly out of scope), Terraform EKS deprecation (all files verified with cross-references, iam-s3-sqs.tf confirmed safe to delete), me-south-1 sweep (184 files, all covered by 12 categories), CDK stack names (11 infra + 23 service stacks confirmed), secrets/SSM tracing (16 secret paths verified, 16 manual SSM params confirmed), S3 bucket naming (all references covered), CI/CD workflows (35 repos + 3 special secrets confirmed), connection strings (standardized parsing confirmed, regex safe) + SQS (only extension services read queue URLs). New finding: Phase 3 inter-service call failure for loyalty/automations/ecwid/geidea (ISSUE-39)*
+*Round 10: 7 parallel agents — hardcoded endpoint/URL scan (SlackNotifier fallbacks + Gateway health check fallbacks found, all low-priority), Terraform file cross-reference (all line numbers and contents verified exactly, zero discrepancies), CDK domain mappings (all 7 files re-confirmed, no missing files), secrets reconstruction (22 backup files verified, 3 custom loading patterns confirmed, csv-generator SSM already in plan), S3 bucket naming (all hardcoded refs covered, CloudFront uses dynamic references), CI/CD workflows (k8s.yml has 6 refs not 2, all dead code, configmap workflows use secrets), missed dependencies (DynamoDB "Cache" table found — ISSUE-43). Net new: 1 HIGH issue (ISSUE-43), 1 LOW issue (ISSUE-44)*
