@@ -2036,6 +2036,10 @@ export CDK_DEFAULT_REGION=eu-central-1 ENV_NAME=prod
 **Deployment notes:**
 - Each service's CDK deploy + DB migration is self-contained (touches only its own database schema), so services within the same tier can be deployed **in parallel**.
 - **Gateway must deploy last** — it is the reverse proxy that routes to all other services. Deploying it before backend services are up would cause health check failures.
+- **IAM roles are global** — every stack's IAM role already exists from me-south-1 CDK. Must use `cdk import` before `cdk deploy`. See procedure below.
+- **Stale inline policies pre-deleted** — all 63 me-south-1 inline policies were removed in P3-S5-02. Backup at `backup-iam-policies/restore-inline-policies.sh`.
+- **DB migrations will return "No pending migrations"** — databases were restored from backup and already have all migrations.
+- **`dotnet publish -c Release`** must be run from the solution root before `cdk synth`.
 
 | # | Tier | Service | Stacks (deploy in order) | Has DbMigrator |
 |---|------|---------|--------------------------|----------------|
@@ -2064,25 +2068,81 @@ export CDK_DEFAULT_REGION=eu-central-1 ENV_NAME=prod
 | 23 | 3 | **ecwid-integration** | ApiStack → BackgroundJobsStack | NO |
 | 24 | **LAST** | **gateway** | GatewayStack | NO |
 
-**For services with DbMigrator:**
+**CRITICAL: IAM Role Import Pattern (learned from P3-S5-01 and P3-S5-02)**
+
+Every service CDK stack that creates an IAM role will **fail on first deploy** because IAM is global and the me-south-1 CDK stacks already created these roles. **Never attempt `cdk deploy` directly** — it will fail, create a ROLLBACK_COMPLETE stack, and waste time.
+
+**Stale inline policies:** All 63 stale me-south-1 inline policies were bulk-deleted during P3-S5-02. Backup and restore script at `backup-iam-policies/`. No per-role policy deletion needed.
+
+**Streamlined procedure for each stack:**
+```bash
+# 1. Synth to generate templates (do this once for all stacks in the service)
+cdk synth
+
+# 2. Extract IAM role logical-ID → physical-name from the template
+python3 -c "
+import json
+with open('cdk.out/<STACK_NAME>.template.json') as f:
+    t = json.load(f)
+for lid, res in t['Resources'].items():
+    if res['Type'] == 'AWS::IAM::Role' and 'RoleName' in res.get('Properties', {}):
+        print(f'{lid} -> {res[\"Properties\"][\"RoleName\"]}')"
+
+# 3. Create resource mapping and import
+echo '{"<LOGICAL_ID>": {"RoleName": "<PHYSICAL_ROLE_NAME>"}}' > /tmp/mapping.json
+cdk import <STACK_NAME> --resource-mapping /tmp/mapping.json --force
+
+# 4. Deploy remaining resources
+cdk deploy <STACK_NAME> --require-approval never
+```
+
+**Helper script:** `deploy-service-cdk.sh` automates steps 2-4 for all stacks in a service:
+```bash
+export AWS_PROFILE=AdministratorAccess-660748123249
+export CDK_DEFAULT_REGION=eu-central-1 ENV_NAME=prod
+
+# Example: deploy loyalty (2 stacks)
+./deploy-service-cdk.sh ticketing-platform-loyalty src/TP.Loyalty.Cdk \
+  TP-ConsumersStack-loyalty-prod TP-BackgroundJobsStack-loyalty-prod
+```
+
+**For services with DbMigrator — additional steps between stacks:**
 ```bash
 P="--profile AdministratorAccess-660748123249 --region eu-central-1"
 
-cd ticketing-platform-<service>/src/TP.<Service>.Cdk
-
-# 1. Deploy DbMigrator stack (CDK uses AWS_PROFILE env var set in 3.3)
-cdk deploy TP-DbMigratorStack-<service>-prod --require-approval never
-
-# 2. Run migration
+# After deploying DbMigratorStack, run the migration:
 aws lambda invoke --function-name "<service>-db-migrator-lambda-prod" \
   --payload '{}' $P /dev/null
 
-# 3. Create log groups (avoids cold-start log group creation delay)
+# Create log groups (avoids cold-start delay):
 aws logs create-log-group --log-group-name "/aws/lambda/<service>-serverless-prod-function" $P
 aws logs create-log-group --log-group-name "/aws/lambda/<service>-consumers-lambda-prod" $P
 
-# 4+. Deploy remaining stacks in order per matrix above
+# Then continue deploying remaining stacks in order per matrix above
 ```
+
+**Important: always `dotnet publish -c Release` from the solution root** (not from the Cdk subdirectory) before running `cdk synth`, since CDK references published Lambda assets.
+
+**Post-deployment verification (after each service):**
+
+After deploying all stacks for a service, verify it is healthy via SSM on the OpenVPN instance:
+```bash
+aws ssm send-command \
+  --instance-ids "i-0f005875786d8cc94" \
+  --document-name "AWS-RunShellScript" \
+  --parameters '{"commands":["curl -sk https://<service>.internal.production-eu.tickets.mdlbeast.net/health"]}' \
+  --region eu-central-1 --query 'Command.CommandId' --output text
+
+# Then retrieve the result:
+aws ssm get-command-invocation \
+  --command-id "<COMMAND_ID>" \
+  --instance-id "i-0f005875786d8cc94" \
+  --region eu-central-1 --query 'StandardOutputContent' --output text
+```
+
+Expected response: `{"status":"Healthy",...}` with `npgsql` and `ReadonlyNpgSql` both Healthy (for services with DB). Services without a database will only show `self` as Healthy.
+
+**Note:** API endpoints (beyond `/health`) require API versioning headers that are normally set by the gateway. Full API endpoint testing is deferred to P3-S6 (end-to-end validation) after the gateway is deployed (P3-S5-24).
 
 ### 3.6 End-to-End Validation (Temporary Domain)
 

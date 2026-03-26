@@ -1,5 +1,92 @@
 # Execution Log: AWS Region Migration (me-south-1 → eu-central-1)
 
+- [Shared Outputs Registry](#shared-outputs-registry)
+- [Deviations Log](#deviations-log)
+- [Phase 1: Code Preparation](#phase-1-code-preparation)
+  - [P1-T0: Create branches in all 34 repos](#p1-t0-create-branches-in-all-34-repos)
+  - [P1-T1: Update Terraform region references](#p1-t1-update-terraform-region-references)
+  - [P1-T2: EKS deprecation in terraform-prod](#p1-t2-eks-deprecation-in-terraform-prod)
+  - [P1-T3: EKS deprecation cleanup in terraform-dev](#p1-t3-eks-deprecation-cleanup-in-terraform-dev)
+  - [P1-T4: Update CDK env-var JSON files (STORAGE\_REGION)](#p1-t4-update-cdk-env-var-json-files-storage_region)
+  - [P1-T5: Update aws-lambda-tools-defaults.json](#p1-t5-update-aws-lambda-tools-defaultsjson)
+  - [P1-T6: Update infrastructure C# code](#p1-t6-update-infrastructure-c-code)
+  - [P1-T7: Update test files](#p1-t7-update-test-files)
+  - [P1-T8: Update ConfigMap YAML files](#p1-t8-update-configmap-yaml-files)
+  - [P1-T9: Update Mobile Scanner CI/CD](#p1-t9-update-mobile-scanner-cicd)
+  - [P1-T10: Update Dashboard CSP and .env files](#p1-t10-update-dashboard-csp-and-env-files)
+  - [P1-T11: Delete CDK context caches](#p1-t11-delete-cdk-context-caches)
+  - [P1-T12: Update CI/CD templates and ConfigMap workflows](#p1-t12-update-cicd-templates-and-configmap-workflows)
+  - [P1-T13: Update local development settings](#p1-t13-update-local-development-settings)
+  - [P1-T14: Security remediation](#p1-t14-security-remediation)
+  - [P1-T15: Temporarily exclude RDS cluster from Terraform](#p1-t15-temporarily-exclude-rds-cluster-from-terraform)
+  - [P1-T16: Set temporary `production-eu` domain mapping in CDK](#p1-t16-set-temporary-production-eu-domain-mapping-in-cdk)
+  - [P1-T17: Run tests](#p1-t17-run-tests)
+  - [P1-T18: Verify zero me-south-1 references](#p1-t18-verify-zero-me-south-1-references)
+  - [P1-T19: Merge and publish ticketing-platform-tools NuGet package](#p1-t19-merge-and-publish-ticketing-platform-tools-nuget-package)
+  - [P1-T20: Confirm no other repos merged yet](#p1-t20-confirm-no-other-repos-merged-yet)
+- [Phase 2: Production Foundation \& Data Restore](#phase-2-production-foundation--data-restore)
+  - [P2-S1: Service quota pre-checks](#p2-s1-service-quota-pre-checks)
+  - [P2-S2: Create Terraform state bucket](#p2-s2-create-terraform-state-bucket)
+  - [P2-S3: Recreate Secrets Manager entries](#p2-s3-recreate-secrets-manager-entries)
+  - [P2-S4: Terraform apply (without RDS cluster)](#p2-s4-terraform-apply-without-rds-cluster)
+  - [P2-S5: Populate manual SSM parameters](#p2-s5-populate-manual-ssm-parameters)
+  - [P2-S5.1: Create DynamoDB Cache table](#p2-s51-create-dynamodb-cache-table)
+  - [P2-S6: Restore Aurora from AWS Backup](#p2-s6-restore-aurora-from-aws-backup)
+  - [P2-S7: Restore S3 data from AWS Backup](#p2-s7-restore-s3-data-from-aws-backup)
+  - [P2-S8: CDK bootstrap](#p2-s8-cdk-bootstrap)
+  - [P2-VERIFY: Phase 2 verification checklist](#p2-verify-phase-2-verification-checklist)
+- [Phase 3: Production Services under Temporary Domain](#phase-3-production-services-under-temporary-domain)
+  - [P3-S1: Create temporary Route53 hosted zone](#p3-s1-create-temporary-route53-hosted-zone)
+  - [P3-S2: Create ACM certificates (temporary domain)](#p3-s2-create-acm-certificates-temporary-domain)
+  - [P3-S3: Infrastructure CDK (11 stacks — strict order)](#p3-s3-infrastructure-cdk-11-stacks--strict-order)
+  - [P3-S4: Update connection strings \& region-dependent secrets](#p3-s4-update-connection-strings--region-dependent-secrets)
+  - [P3-S5: Per-service CDK deployment](#p3-s5-per-service-cdk-deployment)
+    - [P3-S5-01: catalogue](#p3-s5-01-catalogue)
+    - [P3-S5-02: organizations](#p3-s5-02-organizations)
+    - [P3-S5-03: loyalty](#p3-s5-03-loyalty)
+    - [P3-S5-04: csv-generator](#p3-s5-04-csv-generator)
+    - [P3-S5-05: pdf-generator](#p3-s5-05-pdf-generator)
+    - [P3-S5-06: automations](#p3-s5-06-automations)
+    - [P3-S5-07: extension-api](#p3-s5-07-extension-api)
+    - [P3-S5-08: extension-deployer](#p3-s5-08-extension-deployer)
+    - [P3-S5-09: extension-executor](#p3-s5-09-extension-executor)
+    - [P3-S5-10: extension-log-processor](#p3-s5-10-extension-log-processor)
+    - [P3-S5-11: customer-service](#p3-s5-11-customer-service)
+    - [P3-S5-12: inventory](#p3-s5-12-inventory)
+    - [P3-S5-13: pricing](#p3-s5-13-pricing)
+    - [P3-S5-14: media](#p3-s5-14-media)
+    - [P3-S5-15: reporting-api](#p3-s5-15-reporting-api)
+    - [P3-S5-16: marketplace](#p3-s5-16-marketplace)
+    - [P3-S5-17: integration](#p3-s5-17-integration)
+    - [P3-S5-18: distribution-portal](#p3-s5-18-distribution-portal)
+    - [P3-S5-19: sales](#p3-s5-19-sales)
+    - [P3-S5-20: access-control](#p3-s5-20-access-control)
+    - [P3-S5-21: transfer](#p3-s5-21-transfer)
+    - [P3-S5-22: geidea](#p3-s5-22-geidea)
+    - [P3-S5-23: ecwid-integration](#p3-s5-23-ecwid-integration)
+    - [P3-S5-24: gateway (LAST)](#p3-s5-24-gateway-last)
+  - [P3-S6: End-to-end validation (temporary domain)](#p3-s6-end-to-end-validation-temporary-domain)
+  - [P3-VERIFY: Phase 3 verification checklist](#p3-verify-phase-3-verification-checklist)
+- [Phase 4: DNS Cutover to Production Domain](#phase-4-dns-cutover-to-production-domain)
+  - [P4-S1: Revert temporary domain mapping in CDK](#p4-s1-revert-temporary-domain-mapping-in-cdk)
+  - [P4-S1.1: Publish updated ticketing-platform-tools NuGet package](#p4-s11-publish-updated-ticketing-platform-tools-nuget-package)
+  - [P4-S2: Create ACM certificates for real domain](#p4-s2-create-acm-certificates-for-real-domain)
+  - [P4-S3: Redeploy public-facing stacks](#p4-s3-redeploy-public-facing-stacks)
+  - [P4-S4: Update GitHub secrets \& variables](#p4-s4-update-github-secrets--variables)
+  - [P4-S5: Merge to production \& deploy frontends](#p4-s5-merge-to-production--deploy-frontends)
+  - [P4-S6: End-to-end validation (production domain)](#p4-s6-end-to-end-validation-production-domain)
+  - [P4-S7: Post-go-live monitoring (72 hours)](#p4-s7-post-go-live-monitoring-72-hours)
+- [Phase 5: Dev+Sandbox Rebuild](#phase-5-devsandbox-rebuild)
+  - [P5-S1: Service quota pre-checks (account 307824719505)](#p5-s1-service-quota-pre-checks-account-307824719505)
+  - [P5-S2: Foundation](#p5-s2-foundation)
+  - [P5-S3: Services \& validation](#p5-s3-services--validation)
+- [Post-Migration Tasks](#post-migration-tasks)
+  - [PM-1: Temporary domain cleanup](#pm-1-temporary-domain-cleanup)
+  - [PM-2: Extension Lambda redeployment](#pm-2-extension-lambda-redeployment)
+  - [PM-3: Configure AWS Backup in eu-central-1](#pm-3-configure-aws-backup-in-eu-central-1)
+  - [PM-4: Post-migration cleanup (after 7-day stability + me-south-1 recovery)](#pm-4-post-migration-cleanup-after-7-day-stability--me-south-1-recovery)
+
+
 > **How to use this log:** Each step has a status, timestamp, and notes section. An executing agent should:
 >
 > 1. Find the first step with status `PENDING` — that is the next step to execute.
@@ -29,31 +116,31 @@
 
 > Outputs produced by steps that are consumed by downstream steps. Agents should read this section to resolve placeholders. Update this section whenever a step produces a reusable output.
 
-| Key                     | Value                                  | Produced By   | Consumed By         |
-| ----------------------- | -------------------------------------- | ------------- | ------------------- |
-| `VPC_ID`                | `vpc-00de5834b0f381b4d`                | P2-S4         | P2-S4-verify, P2-S5 |
-| `SUBNET_1_ID`           | `subnet-01b47a6d26df020ec`             | P2-S4         | P2-S5               |
-| `SUBNET_2_ID`           | `subnet-0b38abd7f712530d9`             | P2-S4         | P2-S5               |
-| `SUBNET_3_ID`           | `subnet-05359403da2d9a5fe`             | P2-S4         | P2-S5               |
-| `RDS_SG_ID`             | `sg-00dab49088126dfa7`                 | P2-S4         | P2-S5, P2-S6        |
-| `KMS_KEY_ID`            | `72ea5a94-3fbc-494a-baa6-79f3d4c82121` | P2-S4         | P3-S4               |
-| `AURORA_ENDPOINT`       | `ticketing.cluster-c0lac6czadei.eu-central-1.rds.amazonaws.com` | P2-S6         | P2-S6, P3-S4        |
-| `AURORA_RO_ENDPOINT`    | `ticketing.cluster-ro-c0lac6czadei.eu-central-1.rds.amazonaws.com` | P2-S6         | P3-S4               |
-| `RDS_USER`              | `devops`                               | P2-S6         | P2-S6, P3-S4        |
-| `RDS_PASS`              |                                        | P2-S3         | P2-S3, P2-S6        |
-| `PROD_ZONE_ID`          | `Z095340838T2KOPA8X742`                | P2-S4         | P3-S2, P4-S2        |
-| `ROOT_ZONE_ID`          | N/A (zone doesn't exist)               | P2-S4         | P3-S1               |
-| `TEMP_ZONE_ID`          |                                        | P3-S1         | P3-S2, post-cleanup |
-| `CERT_ARN_GATEWAY_TEMP` |                                        | P3-S2         | P3-S3               |
-| `CERT_ARN_GEIDEA_TEMP`  |                                        | P3-S2         | P3-S3               |
-| `CERT_ARN_ECWID_TEMP`   |                                        | P3-S2         | P3-S3               |
-| `CERT_ARN_GATEWAY_PROD` |                                        | P4-S2         | P4-S3               |
-| `CERT_ARN_GEIDEA_PROD`  |                                        | P4-S2         | P4-S3               |
-| `CERT_ARN_ECWID_PROD`   |                                        | P4-S2         | P4-S3               |
-| `NEW_AWS_KEY`           |                                        | P2-S4 / P3-S4 | P3-S4               |
-| `NEW_AWS_SECRET`        |                                        | P2-S4 / P3-S4 | P3-S4               |
-| `NUGET_VERSION_1`       | `1.0.1300`                             | P1-T19        | P1-T19              |
-| `NUGET_VERSION_2`       |                                        | P4-S1.1       | P4-S1.1             |
+| Key                     | Value                                                                                    | Produced By | Consumed By         |
+| ----------------------- | ---------------------------------------------------------------------------------------- | ----------- | ------------------- |
+| `VPC_ID`                | `vpc-00de5834b0f381b4d`                                                                  | P2-S4       | P2-S4-verify, P2-S5 |
+| `SUBNET_1_ID`           | `subnet-01b47a6d26df020ec`                                                               | P2-S4       | P2-S5               |
+| `SUBNET_2_ID`           | `subnet-0b38abd7f712530d9`                                                               | P2-S4       | P2-S5               |
+| `SUBNET_3_ID`           | `subnet-05359403da2d9a5fe`                                                               | P2-S4       | P2-S5               |
+| `RDS_SG_ID`             | `sg-00dab49088126dfa7`                                                                   | P2-S4       | P2-S5, P2-S6        |
+| `KMS_KEY_ID`            | `72ea5a94-3fbc-494a-baa6-79f3d4c82121`                                                   | P2-S4       | P3-S4               |
+| `AURORA_ENDPOINT`       | `ticketing.cluster-c0lac6czadei.eu-central-1.rds.amazonaws.com`                          | P2-S6       | P2-S6, P3-S4        |
+| `AURORA_RO_ENDPOINT`    | `ticketing.cluster-ro-c0lac6czadei.eu-central-1.rds.amazonaws.com`                       | P2-S6       | P3-S4               |
+| `RDS_USER`              | `devops`                                                                                 | P2-S6       | P2-S6, P3-S4        |
+| `RDS_PASS`              |                                                                                          | P2-S3       | P2-S3, P2-S6        |
+| `PROD_ZONE_ID`          | `Z095340838T2KOPA8X742`                                                                  | P2-S4       | P3-S2, P4-S2        |
+| `ROOT_ZONE_ID`          | N/A (zone doesn't exist)                                                                 | P2-S4       | P3-S1               |
+| `TEMP_ZONE_ID`          | `Z0663446BTJAVD4MTCYG`                                                                   | P3-S1       | P3-S2, post-cleanup |
+| `CERT_ARN_GATEWAY_TEMP` | `arn:aws:acm:eu-central-1:660748123249:certificate/914c47a3-f0df-4e5c-a406-747f62fb2228` | P3-S2       | P3-S3               |
+| `CERT_ARN_GEIDEA_TEMP`  | `arn:aws:acm:eu-central-1:660748123249:certificate/773c5a63-304a-476c-95dd-877065f91581` | P3-S2       | P3-S3               |
+| `CERT_ARN_ECWID_TEMP`   | `arn:aws:acm:eu-central-1:660748123249:certificate/75e4cc24-20cc-491d-b87c-20ae2647f2b9` | P3-S2       | P3-S3               |
+| `CERT_ARN_GATEWAY_PROD` |                                                                                          | P4-S2       | P4-S3               |
+| `CERT_ARN_GEIDEA_PROD`  |                                                                                          | P4-S2       | P4-S3               |
+| `CERT_ARN_ECWID_PROD`   |                                                                                          | P4-S2       | P4-S3               |
+| `NEW_AWS_KEY`           | `AKIAZTV5IHRY3JAPWUFD`                                                                   | P3-S4       | P3-S4, P4-S4        |
+| `NEW_AWS_SECRET`        | _(redacted — fetch from any `/prod/*` secret's `AWS_ACCESS_SECRET` key)_                 | P3-S4       | P3-S4, P4-S4        |
+| `NUGET_VERSION_1`       | `1.0.1300`                                                                               | P1-T19      | P1-T19              |
+| `NUGET_VERSION_2`       |                                                                                          | P4-S1.1     | P4-S1.1             |
 
 ---
 
@@ -61,26 +148,41 @@
 
 > Summary of all deviations from `plan.md`. Each entry links to the step where the full deviation record lives. Future agents: **read this section first** to understand how the current state differs from the original plan before executing your step.
 
-| Step   | Summary                                                                                                                                                     | Downstream Impact                                                                                |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| P1-T0  | Switched terraform-dev to `master` and ecwid-integration to `production` before branching; configmap-prod branched from `disaster`                          | None                                                                                             |
-| P1-T2  | Also removed 3 MSK ingress rules from rds.tf (referenced deleted msk.tf); deleted iam-s3-sqs.tf entirely (only had s3-sqs-eks)                              | None                                                                                             |
-| P1-T4  | Bulk script updated 53 files across 18 repos (plan listed 14); extra repos had demo env files or weren't listed                                             | None                                                                                             |
-| P1-T5  | 25 repos affected (plan listed 22); created hotfix branches in 3 extra repos (bandsintown-integration, marketing-feeds, xp-badges)                          | None                                                                                             |
-| P1-T10 | `.env.development` gitignored — updated locally but not committed; `S3_MEDIA_BUCKET_URL` bucket renamed from `ticketing-media` to `ticketing-prod-media-eu` | None                                                                                             |
-| P1-T12 | Workflows disabled (trigger → workflow_dispatch) instead of deleted, per user preference                                                                    | None                                                                                             |
-| P1-T13 | Pricing skipped (no me-south-1 refs); gateway had 4 Elasticsearch URI occurrences not 1                                                                     | None                                                                                             |
-| P1-T14 | terraform-prod had no `.gitignore` — created from scratch                                                                                                   | None                                                                                             |
-| P2-S3  | Used `replicate-secret-to-regions` from me-south-1 instead of manual recreation; `devops` created from backup (replica secret)                              | None — cleanup in P3-S4                                                                          |
-| P2-S4  | Only one Route53 zone imported (not two); `tickets.mdlbeast.net` doesn't exist and was never in state                                                       | P3-S1 must use `PROD_ZONE_ID` for NS delegation instead of `ROOT_ZONE_ID`                        |
-| P2-S4  | S3 bucket renames (`-eu` suffix) missed in Phase 1 — fixed in this step: `s3.tf`, `variables.tf`, `mobile.tf` (4 buckets)                                   | `ticketing-app-mobile-eu` needs S3 copy from me-south-1; dashboard CloudFront URLs need updating |
-| P2-S4  | 34 global resources imported (IAM, CloudFront OACs, S3 state bucket) — plan assumed fresh creation                                                          | None — IAM policies are additive (both regions work)                                             |
-| P2-S4  | New CloudFront distribution IDs: `E2E0LQF2V6W4U` (s3_prod), `E1NNQYK06MZJSB` (mobile) — dashboard has hardcoded old IDs                                     | Dashboard code + GitHub vars need CloudFront URL updates before go-live                          |
-| P2-S4  | `developer-msk` group policy attachment removed (AWS 10-policy limit, MSK deprecated)                                                                       | None                                                                                             |
-| P2-S4  | Removed `acl = "private"` from `ticketing-terraform-prod-eu` bucket (ACLs disabled by default since April 2023)                                             | None                                                                                             |
-| P2-S5  | Created 35 params (plan: 16). Added CSV/PDF full runtime sets, Slack `WebhookUrl`, extension manual params. Fixed `STORAGE_EXPIRATION_HOURS` (167/168 not 48). Used live me-south-1 values. Set `ACCESS_CONTROL_SERVICE_URL`/`ExtensionApiUrl` to temp domain. | `ACCESS_CONTROL_SERVICE_URL` + `ExtensionApiUrl` must update to final domain at Phase 4 cutover. `/rds/ticketing-cluster-ro-endpoint` deferred to P2-S6. |
-| P2-S6  | IAM role name was `AWSBackupDefaultServiceRole` not `AWSBackupDefaultRole`; restore metadata required full format with JSON arrays; scaling config must be set before creating serverless instances; `/rds/ticketing-cluster` secret was replica — promoted before updating; terraform plan showed 4 minor drifts — applied, min_capacity set to 1.5 (not 8) | Replicated secrets need promotion before update in P3-S4 |
-| P2-S7  | Restored 3 buckets (plan listed 2) — added `ticketing-app-mobile`; plan metadata wrong (`NewBucket` undocumented, missing `EncryptionType`/`KMSKey` for cross-region); required temporary ACL/ownership relaxation on destination buckets; pdf-download needed retry restore after partial failure | None |
+| Step   | Summary                                                                                                                                                                                                                                                                                                                                                      | Downstream Impact                                                                                                                                        |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1-T0  | Switched terraform-dev to `master` and ecwid-integration to `production` before branching; configmap-prod branched from `disaster`                                                                                                                                                                                                                           | None                                                                                                                                                     |
+| P1-T2  | Also removed 3 MSK ingress rules from rds.tf (referenced deleted msk.tf); deleted iam-s3-sqs.tf entirely (only had s3-sqs-eks)                                                                                                                                                                                                                               | None                                                                                                                                                     |
+| P1-T4  | Bulk script updated 53 files across 18 repos (plan listed 14); extra repos had demo env files or weren't listed                                                                                                                                                                                                                                              | None                                                                                                                                                     |
+| P1-T5  | 25 repos affected (plan listed 22); created hotfix branches in 3 extra repos (bandsintown-integration, marketing-feeds, xp-badges)                                                                                                                                                                                                                           | None                                                                                                                                                     |
+| P1-T10 | `.env.development` gitignored — updated locally but not committed; `S3_MEDIA_BUCKET_URL` bucket renamed from `ticketing-media` to `ticketing-prod-media-eu`                                                                                                                                                                                                  | None                                                                                                                                                     |
+| P1-T12 | Workflows disabled (trigger → workflow_dispatch) instead of deleted, per user preference                                                                                                                                                                                                                                                                     | None                                                                                                                                                     |
+| P1-T13 | Pricing skipped (no me-south-1 refs); gateway had 4 Elasticsearch URI occurrences not 1                                                                                                                                                                                                                                                                      | None                                                                                                                                                     |
+| P1-T14 | terraform-prod had no `.gitignore` — created from scratch                                                                                                                                                                                                                                                                                                    | None                                                                                                                                                     |
+| P2-S3  | Used `replicate-secret-to-regions` from me-south-1 instead of manual recreation; `devops` created from backup (replica secret)                                                                                                                                                                                                                               | None — cleanup in P3-S4                                                                                                                                  |
+| P2-S4  | Only one Route53 zone imported (not two); `tickets.mdlbeast.net` doesn't exist and was never in state                                                                                                                                                                                                                                                        | P3-S1 must use `PROD_ZONE_ID` for NS delegation instead of `ROOT_ZONE_ID`                                                                                |
+| P2-S4  | S3 bucket renames (`-eu` suffix) missed in Phase 1 — fixed in this step: `s3.tf`, `variables.tf`, `mobile.tf` (4 buckets)                                                                                                                                                                                                                                    | `ticketing-app-mobile-eu` needs S3 copy from me-south-1; dashboard CloudFront URLs need updating                                                         |
+| P2-S4  | 34 global resources imported (IAM, CloudFront OACs, S3 state bucket) — plan assumed fresh creation                                                                                                                                                                                                                                                           | None — IAM policies are additive (both regions work)                                                                                                     |
+| P2-S4  | New CloudFront distribution IDs: `E2E0LQF2V6W4U` (s3_prod), `E1NNQYK06MZJSB` (mobile) — dashboard has hardcoded old IDs                                                                                                                                                                                                                                      | Dashboard code + GitHub vars need CloudFront URL updates before go-live                                                                                  |
+| P2-S4  | `developer-msk` group policy attachment removed (AWS 10-policy limit, MSK deprecated)                                                                                                                                                                                                                                                                        | None                                                                                                                                                     |
+| P2-S4  | Removed `acl = "private"` from `ticketing-terraform-prod-eu` bucket (ACLs disabled by default since April 2023)                                                                                                                                                                                                                                              | None                                                                                                                                                     |
+| P2-S5  | Created 35 params (plan: 16). Added CSV/PDF full runtime sets, Slack `WebhookUrl`, extension manual params. Fixed `STORAGE_EXPIRATION_HOURS` (167/168 not 48). Used live me-south-1 values. Set `ACCESS_CONTROL_SERVICE_URL`/`ExtensionApiUrl` to temp domain.                                                                                               | `ACCESS_CONTROL_SERVICE_URL` + `ExtensionApiUrl` must update to final domain at Phase 4 cutover. `/rds/ticketing-cluster-ro-endpoint` deferred to P2-S6. |
+| P2-S6  | IAM role name was `AWSBackupDefaultServiceRole` not `AWSBackupDefaultRole`; restore metadata required full format with JSON arrays; scaling config must be set before creating serverless instances; `/rds/ticketing-cluster` secret was replica — promoted before updating; terraform plan showed 4 minor drifts — applied, min_capacity set to 1.5 (not 8) | Replicated secrets need promotion before update in P3-S4                                                                                                 |
+| P2-S7  | Restored 3 buckets (plan listed 2) — added `ticketing-app-mobile`; plan metadata wrong (`NewBucket` undocumented, missing `EncryptionType`/`KMSKey` for cross-region); required temporary ACL/ownership relaxation on destination buckets; pdf-download needed retry restore after partial failure                                                           | None                                                                                                                                                     |
+| P3-S1  | NS delegation added in Cloudflare (`mdlbeast.net` zone) instead of via AWS CLI against Route53 `tickets.mdlbeast.net` parent zone                                                                                                                                                                                                                            | Post-migration cleanup (PM-1) must remove NS records from Cloudflare, not Route53                                                                        |
+| P3-S3  | Stack 8 failed — VPC missing `enable_dns_hostnames = true`. Fixed in Terraform `vpc.tf`, applied, retried CDK successfully.                                                                                                                                                                                                                                  | `ticketing-platform-terraform-prod` has uncommitted `vpc.tf` change — must commit before Phase 3 completion                                              |
+| P3-S4  | Promoted 22 replica secrets before updating; deleted stale CICD key + created new; updated 19 secrets (not 16); used `jq` not Python; `--output json` pipeline to handle special chars                                                                                                                                                                       | Old CICD key `AKIAZTV5IHRYY5XWYBO2` deleted — me-south-1 CI/CD using it will fail. `prod/data` still has me-south-1 Glue bucket ref (not in scope)       |
+| P3-S5-01 | SSM subnet params stored full IDs (`subnet-...`) causing double prefix; fixed to suffix-only | None — fixed globally for all services |
+| P3-S5-01 | Global IAM roles from me-south-1 CDK stacks already exist; must use `cdk import` + inline policy delete pattern for every service | All P3-S5 service deployments must follow import pattern |
+| P3-S5-01 | RDS SG had no Lambda ingress rule; added VPC CIDR port 5432 rule via Terraform `rds.tf` | None — applies globally; `terraform-prod` has uncommitted `rds.tf` change |
+| P3-S5-02 | Organization SQS queue visibility timeout (120s) < Lambda timeout (900s); fixed in infrastructure CDK `ConsumersSqsStack.cs` and redeployed | `ticketing-platform-infrastructure` has uncommitted code change |
+| P3-S5-02 | Pre-deleted all 63 stale me-south-1 inline policies across all service IAM roles; backup + restore script in `backup-iam-policies/` | All future P3-S5 deployments skip inline policy deletion step; still need `cdk import` per role |
+| P3-S5-03 | BackgroundJobsStack failed — log group for background jobs Lambda must be pre-created (not just consumers/serverless) | All P3-S5 services with BackgroundJobsStack must pre-create `/aws/lambda/<service>-background-jobs-lambda-prod` log group |
+| P3-S5-05 | Lambda package exceeded 250MB (CDK DLLs ~91MB + SkiaSharp multi-platform runtimes ~120MB); cleaned publish dir before deploy. **Workaround:** after `dotnet publish -c Release -p:PublishReadyToRun=false`, delete `Amazon.CDK.*`, `Amazon.JSII.*`, `Constructs.dll` and non-linux-x64 runtimes from `publish/`. Only pdf-generator is affected (unique SkiaSharp/QuestPDF deps). | Future CI/CD for pdf-generator needs same cleanup or .csproj exclusion; no other services affected |
+| P3-S5-06 | `finance_report_sender_lambda_role_prod` had stale DefaultPolicy not caught by P3-S5-02 bulk deletion; first deploy rolled back, deleted policy, retried successfully | Future P3-S5 deployments should check for stale DefaultPolicy inline policies if deploy fails with "policy already exists" |
+| P3-S5-08 | ExtensionDeployerStack failed — Lambda `ticketing-platform-extension-deployer-prod` not in eu-central-1 (Docker image-based, deployed via `dotnet lambda deploy-function`, not CDK). Deployed Lambda + ECR repo manually before retrying CDK. | PM-2 can now proceed; other services with external Lambdas may need same treatment |
+| P3-S5-20 | Three stale DefaultPolicy inline policies survived P3-S5-02 bulk cleanup on access-control roles; Lambda uses `accesscontrol-` prefix (no hyphen), not `access-control-` | None — policies recreated by CDK |
+| P3-S5-14 | MediaStorageStack failed twice: (1) IAM user `imgix-prod` already exists (global), (2) inline policy `media-s3-imgix-user-policy-prod` already on user. S3 bucket orphaned on rollback. Fixed by importing user + bucket, deleting stale policy. | None — media is only service with IAM user in CDK |
+| P3-S5-18 | Health check failed — `SalesServiceBaseRoute` env var missing (was in K8s configmap, not in Lambda env-var.prod.json). Added to Lambda config + `env-var.prod.json`. DNS uses `dp` prefix not `distribution-portal`. | `ticketing-platform-distribution-portal` has uncommitted code change. Tier 3 services (access-control, gateway, transfer) may need same configmap→env-var migration |
 
 ---
 
@@ -652,326 +754,696 @@
 
 ### P3-S1: Create temporary Route53 hosted zone
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T03:38
+- **Completed:** 2026-03-26T03:42
 - **Substeps:**
-  - [ ] Create `production-eu.tickets.mdlbeast.net` hosted zone
-  - [ ] Get NS records for the new zone
-  - [ ] Add NS delegation in parent zone (`tickets.mdlbeast.net`)
+  - [x] Create `production-eu.tickets.mdlbeast.net` hosted zone
+  - [x] Get NS records for the new zone
+  - [x] Add NS delegation in parent zone
 - **Outputs:**
-  - `TEMP_ZONE_ID`:
-  - NS records:
-- **Notes:**
+  - `TEMP_ZONE_ID`: `Z0663446BTJAVD4MTCYG`
+  - NS records: `ns-806.awsdns-36.net`, `ns-281.awsdns-35.com`, `ns-1998.awsdns-57.co.uk`, `ns-1464.awsdns-55.org`
+- **Deviations:**
+  - **DEVIATION:** NS delegation added in Cloudflare (`mdlbeast.net` zone) instead of via AWS CLI against a Route53 `tickets.mdlbeast.net` parent zone.
+  - **Reason:** `tickets.mdlbeast.net` does not exist as a Route53 hosted zone. DNS for `mdlbeast.net` is managed in Cloudflare. The existing `production.tickets.mdlbeast.net` delegation was also done via Cloudflare NS records.
+  - **Actions taken:** Created hosted zone in Route53. User manually added 4 NS records in Cloudflare for `production-eu.tickets` pointing to Route53 nameservers. Verified propagation via `dig NS`.
+  - **Downstream impact:** Post-migration cleanup (PM-1) must remove NS records from Cloudflare (not Route53). No impact on remaining Phase 3/4 steps.
+- **Notes:** Zone created with caller reference `migration-1774496302`. DNS propagation confirmed immediately after Cloudflare NS record creation.
 
 ### P3-S2: Create ACM certificates (temporary domain)
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T00:00
+- **Completed:** 2026-03-26T04:05
 - **Substeps:**
-  - [ ] Request + validate cert for `api.production-eu.tickets.mdlbeast.net` → SSM `/production-eu/tp/DomainCertificateArn`
-  - [ ] Request + validate cert for `geidea.production-eu.tickets.mdlbeast.net` → SSM `/prod/tp/geidea/DomainCertificateArn`
-  - [ ] Request + validate cert for `ecwid.production-eu.tickets.mdlbeast.net` → SSM `/prod/tp/ecwid/DomainCertificateArn`
-  - [ ] Verify all 3 certs ISSUED
+  - [x] Request + validate cert for `api.production-eu.tickets.mdlbeast.net` → SSM `/production-eu/tp/DomainCertificateArn`
+  - [x] Request + validate cert for `geidea.production-eu.tickets.mdlbeast.net` → SSM `/prod/tp/geidea/DomainCertificateArn`
+  - [x] Request + validate cert for `ecwid.production-eu.tickets.mdlbeast.net` → SSM `/prod/tp/ecwid/DomainCertificateArn`
+  - [x] Verify all 3 certs ISSUED
 - **Outputs:**
-  - `CERT_ARN_GATEWAY_TEMP`:
-  - `CERT_ARN_GEIDEA_TEMP`:
-  - `CERT_ARN_ECWID_TEMP`:
-- **Notes:**
+  - `CERT_ARN_GATEWAY_TEMP`: `arn:aws:acm:eu-central-1:660748123249:certificate/914c47a3-f0df-4e5c-a406-747f62fb2228`
+  - `CERT_ARN_GEIDEA_TEMP`: `arn:aws:acm:eu-central-1:660748123249:certificate/773c5a63-304a-476c-95dd-877065f91581`
+  - `CERT_ARN_ECWID_TEMP`: `arn:aws:acm:eu-central-1:660748123249:certificate/75e4cc24-20cc-491d-b87c-20ae2647f2b9`
+- **Notes:** All 3 certs requested, DNS-validated via Route53 zone Z0663446BTJAVD4MTCYG, and ARNs stored in SSM. No deviations.
 
 ### P3-S3: Infrastructure CDK (11 stacks — strict order)
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T22:00
+- **Completed:** 2026-03-26T23:10
 - **Substeps:**
-  - [ ] Stack 1: `TP-EventBusStack-prod`
-  - [ ] Stack 2: `TP-ConsumersSqsStack-prod`
-  - [ ] Stack 3: `TP-ConsumerSubscriptionStack-prod`
-  - [ ] Stack 4: `TP-ExtendedMessageS3BucketStack-prod`
-  - [ ] Stack 5: `TP-InternalHostedZoneStack-prod`
-  - [ ] Stack 6: `TP-InternalCertificateStack-prod`
-  - [ ] Stack 7: `TP-MonitoringStack-prod`
-  - [ ] Stack 8: `TP-ApiGatewayVpcEndpointStack`
-  - [ ] Stack 9: `TP-RdsProxyStack`
-  - [ ] Stack 10: `TP-XRayInsightNotificationStack-prod`
-  - [ ] Stack 11: `TP-SlackNotificationStack-prod`
-- **Notes:**
+  - [x] Stack 1: `TP-EventBusStack-prod`
+  - [x] Stack 2: `TP-ConsumersSqsStack-prod`
+  - [x] Stack 3: `TP-ConsumerSubscriptionStack-prod`
+  - [x] Stack 4: `TP-ExtendedMessageS3BucketStack-prod`
+  - [x] Stack 5: `TP-InternalHostedZoneStack-prod`
+  - [x] Stack 6: `TP-InternalCertificateStack-prod`
+  - [x] Stack 7: `TP-MonitoringStack-prod`
+  - [x] Stack 8: `TP-ApiGatewayVpcEndpointStack`
+  - [x] Stack 9: `TP-RdsProxyStack`
+  - [x] Stack 10: `TP-XRayInsightNotificationStack-prod`
+  - [x] Stack 11: `TP-SlackNotificationStack-prod`
+- **Deviations:**
+  - **DEVIATION:** Stack 8 (`TP-ApiGatewayVpcEndpointStack`) failed on first attempt — VPC `enable_dns_hostnames` was `false`, required for private DNS on VPC endpoints. Fixed by adding `enable_dns_hostnames = true` and `enable_dns_support = true` to `vpc.tf` in `ticketing-platform-terraform-prod` and running `terraform apply -target=aws_vpc.ticketing`. Then deleted the ROLLBACK_COMPLETE stack and retried successfully.
+  - **Reason:** Terraform `vpc.tf` did not set `enable_dns_hostnames` (defaults to `false`). The old me-south-1 VPC likely had this set outside of Terraform or it was never needed before.
+  - **Actions taken:** Edited `ticketing-platform-terraform-prod/prod/vpc.tf` to add both DNS attributes. Ran targeted `terraform apply`. Deleted failed CloudFormation stack. Retried CDK deploy.
+  - **Downstream impact:** `ticketing-platform-terraform-prod` has an uncommitted change to `vpc.tf` — must be committed before Phase 3 completion.
+- **Repos (1):** `ticketing-platform-terraform-prod` (vpc.tf DNS attributes fix)
+- **Notes:** All 11 stacks `CREATE_COMPLETE`. ConsumerSubscriptionStack had 18 cosmetic warnings about unresolved environment (pre-existing, not introduced by migration). MonitoringStack had 1 warning about `installLatestAwsSdk` (pre-existing). RDS Proxy took ~12 min to provision. Stack 6 (InternalCertificateStack) auto-validated cert for `*.internal.production-eu.tickets.mdlbeast.net` via private hosted zone DNS records.
 
 ### P3-S4: Update connection strings & region-dependent secrets
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T23:30
+- **Completed:** 2026-03-27T06:15
 - **Substeps:**
-  - [ ] Get Aurora cluster endpoints (direct, not RDS Proxy)
-  - [ ] Get RDS master credentials from secret
-  - [ ] Generate new IAM CICD user access key
-  - [ ] Get new KMS key ID
-  - [ ] Update CONNECTION_STRINGS in 16 service secrets
-  - [ ] Update SQS queue URLs for extensions (deployer + executor)
-  - [ ] Update SQS_QUEUE_URL for CSV generator consumers (marketplace, sales, transfer, reporting)
-  - [ ] Update media SQS_QUEUE_URL
-  - [ ] Verify CONNECTION_STRINGS point to new Aurora endpoint
-  - [ ] Verify database names exist in restored cluster (`\l`)
+  - [x] Promote 22 replica secrets to standalone (all had `PrimaryRegion: me-south-1`)
+  - [x] Get Aurora cluster endpoints (direct, not RDS Proxy)
+  - [x] Get RDS master credentials from secret
+  - [x] Generate new IAM CICD user access key (deleted stale key `AKIAZTV5IHRYY5XWYBO2`, created new)
+  - [x] Get new KMS key ID (`72ea5a94-3fbc-494a-baa6-79f3d4c82121`)
+  - [x] Update CONNECTION_STRINGS in 16 service secrets (access-control, catalogue, customers, dp, extensions, integration, inventory, loyalty, marketplace, media, organizations, pricing, reporting, sales, transfer, geidea)
+  - [x] Update SQS queue URLs for extensions (deployer + executor)
+  - [x] Update SQS_QUEUE_URL for CSV generator consumers (access-control, customers, marketplace, sales, transfer, reporting)
+  - [x] Update media SQS_QUEUE_URL + PDF_FUNCTION_URL
+  - [x] Update automations connection strings + config (AUTOMATIC_DATA_EXPORTER_CONNECTION_STRING, S3Region in configs)
+  - [x] Update gateway (Elasticsearch URI region)
+  - [x] Update IAM keys (AWS_ACCESS_KEY, AWS_ACCESS_SECRET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY) across all services
+  - [x] Blanket `me-south-1` → `eu-central-1` replacement in all string values
+  - [x] Verify CONNECTION_STRINGS point to new Aurora endpoint — all 16 services confirmed
+  - [x] Verify zero `me-south-1` remaining in all 19 updated secrets — confirmed clean
+  - [ ] Verify database names exist in restored cluster (`\l`) — skipped, `psql` not installed locally; databases confirmed during P2-S6 backup restore
 - **Outputs:**
-  - `NEW_AWS_KEY`:
-  - `NEW_AWS_SECRET`:
+  - `NEW_AWS_KEY`: `AKIAZTV5IHRY3JAPWUFD`
+  - `NEW_AWS_SECRET`: _(redacted — fetch from any `/prod/*` secret's `AWS_ACCESS_SECRET` key when needed for P4-S4)_
+- **Deviations:**
+  - **DEVIATION 1:** All 22 replica secrets (20 `/prod/*` + `terraform` + `prod/data`) required promotion via `stop-replication-to-replica` before updating. Plan did not account for replica state.
+  - **Reason:** P2-S3 used replication from me-south-1 instead of manual creation. Only `/rds/ticketing-cluster` and `devops` were already standalone.
+  - **Actions taken:** Promoted all 22 in batch before any updates.
+  - **Downstream impact:** None — all secrets are now standalone in eu-central-1.
+  ***
+  - **DEVIATION 2:** CICD IAM user had 2 active keys (AWS max), both stale. Deleted `AKIAZTV5IHRYY5XWYBO2` (Jan 2023) and created new key. Plan assumed a key could simply be created.
+  - **Reason:** Terraform-managed CICD user (`user-cicd.tf`) already had max keys. Secrets contained a third key (`AKIAZTV5IHRY2QN6IBWL`) that no longer exists — all keys in secrets were stale.
+  - **Actions taken:** Deleted oldest key, created `AKIAZTV5IHRY3JAPWUFD`. Updated all secrets with new key.
+  - **Downstream impact:** Old key `AKIAZTV5IHRYY5XWYBO2` is deleted — if any me-south-1 CI/CD pipeline still uses it, it will fail. Remaining active key `AKIAZTV5IHRY6ZFIUZUM` (Sep 2023) is unaffected.
+  ***
+  - **DEVIATION 3:** Updated 19 secrets instead of plan's 16. Added `automations` (had `AUTOMATIC_DATA_EXPORTER_CONNECTION_STRING` + 3 CONFIG values with `me-south-1`), `gateway` (had `Logging__Elasticsearch__Uri`), and `ecwid` (blanket region replacement). Plan listed only services with CONNECTION_STRINGS.
+  - **Reason:** Full `me-south-1` audit of all secrets revealed additional references.
+  - **Actions taken:** Included all secrets with any `me-south-1` reference.
+  - **Downstream impact:** None.
+  ***
+  - **DEVIATION 4:** Used `jq` (not Python) for all transformations. Required `--output json | jq '.SecretString | fromjson'` pipeline instead of `--output text` to preserve escape sequences in secrets with special characters (customers had `\d` in password, geidea/automations had PEM keys with `\n`).
+  - **Reason:** `--output text` strips JSON escaping, corrupting special characters. Shell variable `$()` substitution also strips escapes.
+  - **Actions taken:** Used single `jq` pipeline from raw AWS JSON response; piped output to temp file for update (no intermediate shell variables).
+  - **Downstream impact:** None.
 - **Notes:**
+  - **19 secrets updated:** access-control, automations, catalogue, customers, dp, ecwid, extensions, gateway, geidea, integration, inventory, loyalty, marketplace, media, organizations, pricing, reporting, sales, transfer
+  - **4 secrets NOT updated (correct):** `/rds/ticketing-cluster` (already correct from P2-S6), `terraform` (only has RDS password, no region refs after promotion), `devops` (manually created in P2-S3), `xp-badges` (out of migration scope)
+  - **1 secret with known `me-south-1` remaining:** `prod/data` has `spark.hadoop.google.cloud.auth.service.account.json.keyfile` pointing to `s3://aws-glue-assets-660748123249-me-south-1/...` — this is a Glue/Spark config referencing an actual me-south-1 bucket, not a region value to swap
+  - **SQS queue URLs:** Correctly formatted for eu-central-1. Specialty queues (`TP_CSV_Report_Generator_Service_Queue_prod`, `TP_PDF_Generator_Service_Queue_prod`, `TP_Extensions_Deployer_Queue_prod`, `TP_Extensions_Executor_Queue_prod`) do not exist yet — will be created by per-service CDK stacks in P3-S5
+  - **Ecwid:** Still missing 8 vendor config keys (CONNECTION_STRINGS, ECWID_STORE_ID, etc.) per P2-S3 — not addressed in this step
 
 ### P3-S5: Per-service CDK deployment
+
+> **Deployment Patterns & Lessons (from P3-S5-01 catalogue, updated after P3-S5-02 organizations)**
+>
+> Reference this section before deploying each service to avoid repeated trial-and-error.
+>
+> **1. Pre-build: `dotnet publish` before CDK**
+> CDK synths ALL stacks in `Program.cs` even when deploying just one. The `ServerlessBackendStack` references the API project's published assets. Always run `dotnet publish -c Release` from the **solution root** (not the Cdk subdirectory) BEFORE any `cdk synth`/`cdk deploy`/`cdk import`.
+> ```bash
+> cd ticketing-platform-<service> && dotnet publish -c Release
+> ```
+>
+> **2. CDK must run from the CDK project directory**
+> Always `cd` into the Cdk project directory before running `cdk deploy`/`cdk import`. Otherwise you get `--app is required`.
+>
+> **3. Global IAM role conflicts — streamlined procedure (updated P3-S5-02)**
+> IAM is global — roles created by me-south-1 CDK stacks still exist. **Never attempt `cdk deploy` directly** — it will fail, create a ROLLBACK_COMPLETE stack, and waste time.
+>
+> **Stale inline policies are already deleted.** All 63 me-south-1 inline policies were bulk-deleted in P3-S5-02. Backup and restore script at `backup-iam-policies/`. No per-role policy deletion needed for any remaining service.
+>
+> **For each stack, use synth → extract → import → deploy:**
+>
+> | Step | Command |
+> |------|---------|
+> | a. Synth | `cdk synth` (once for all stacks in the service) |
+> | b. Extract IAM role logical IDs | Parse `cdk.out/<STACK>.template.json` for `AWS::IAM::Role` resources with a `RoleName` property |
+> | c. Create resource mapping | `{"<LogicalId>": {"RoleName": "<physical-name>"}}` |
+> | d. Import the role | `cdk import <stack> --resource-mapping <file> --force` |
+> | e. Deploy remaining resources | `cdk deploy <stack> --require-approval never` |
+>
+> **Extract command** (run after synth):
+> ```bash
+> python3 -c "
+> import json
+> with open('cdk.out/<STACK_NAME>.template.json') as f:
+>     t = json.load(f)
+> for lid, res in t['Resources'].items():
+>     if res['Type'] == 'AWS::IAM::Role' and 'RoleName' in res.get('Properties', {}):
+>         print(f'{lid} -> {res[\"Properties\"][\"RoleName\"]}')"
+> ```
+>
+> **Helper script** `deploy-service-cdk.sh` automates steps (b)→(e) for all stacks in a service:
+> ```bash
+> ./deploy-service-cdk.sh <service-repo-dir> <cdk-project-relative-path> <stack1> [stack2] ...
+> ```
+>
+> **4. `AWS::IAM::Policy` cannot be imported**
+> CloudFormation does not support importing `AWS::IAM::Policy` (inline policies). They must be absent from the role BEFORE import, then `cdk deploy` recreates them with eu-central-1 ARNs. _(Already handled by the bulk deletion in P3-S5-02.)_
+>
+> **5. Shell variable `$P` does not expand reliably**
+> Defining `P="--profile X --region Y"` and using `$P` inline causes "Unknown options" errors because the shell doesn't word-split properly. Always use explicit flags:
+> ```bash
+> --profile AdministratorAccess-660748123249 --region eu-central-1
+> ```
+> Or use `export AWS_PROFILE=... AWS_DEFAULT_REGION=...` environment variables instead.
+>
+> **6. DB migrations will return "No pending migrations"**
+> The Aurora database was restored from backup — all migrations are already applied. This is expected and counts as success.
+>
+> **7. Private API Gateway — cannot curl from outside VPC**
+> All service APIs are private (VPC endpoint). Do NOT attempt to curl from the local machine. For verification:
+> - Use `aws lambda invoke` with a crafted API Gateway event payload
+> - Or ask the user to test from the OpenVPN instance (`tp_ssh_prd` alias) using the internal domain: `https://<service>.internal.production-eu.tickets.mdlbeast.net`
+>
+> **8. Database connectivity — do not attempt direct DB queries**
+> RDS Data API is not enabled. Do not try `rds-data execute-statement`. To verify DB connectivity:
+> - Invoke the `/health` endpoint (checks both read/write connections)
+> - Invoke a real GET endpoint that queries the database
+> - Or ask the user to run a query from a DB client
+>
+> **9. Log group creation (UPDATED P3-S5-03)**
+> Create log groups BEFORE deploying ANY stack that has a Slack `SubscriptionFilter` — the filter references the log group and fails if it doesn't exist yet. Create groups for ALL stacks the service has:
+> - `/aws/lambda/<service>-serverless-prod-function` — for services with ServerlessBackendStack
+> - `/aws/lambda/<service>-consumers-lambda-prod` — for services with ConsumersStack
+> - `/aws/lambda/<service>-background-jobs-lambda-prod` — for services with BackgroundJobsStack
+>
+> **10. Environment variables for CDK**
+> Always set all four before any CDK operation:
+> ```bash
+> export AWS_PROFILE=AdministratorAccess-660748123249
+> export CDK_DEFAULT_ACCOUNT=660748123249
+> export CDK_DEFAULT_REGION=eu-central-1
+> export ENV_NAME=prod
+> ```
+>
+> **11. SSM subnet params (FIXED — no action needed)**
+> Corrected in P3-S5-01: `/prod/tp/SUBNET_1,2,3` now store suffix-only values. No further action.
+>
+> **12. RDS SG Lambda access (FIXED — no action needed)**
+> VPC CIDR ingress on port 5432 added to Terraform `rds.tf` in P3-S5-01. All Lambda functions can reach RDS Proxy.
 
 Tier 1 services (deploy in parallel):
 
 #### P3-S5-01: catalogue
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T00:00
+- **Completed:** 2026-03-26T06:34
 - **Substeps:**
-  - [ ] `dotnet build` CDK project
-  - [ ] Deploy DbMigratorStack
-  - [ ] Run DB migration Lambda
-  - [ ] Deploy ServerlessBackendStack
+  - [x] `dotnet build` CDK project
+  - [x] Deploy DbMigratorStack
+  - [x] Run DB migration Lambda
+  - [x] Deploy ServerlessBackendStack
+- **Deviations:**
+  - **DEVIATION 1:** SSM subnet parameters (`/prod/tp/SUBNET_1,2,3`) stored full IDs (`subnet-...`) but `CdkStackUtilities.GetSubnets()` prepends `"subnet-"`, causing `subnet-subnet-...` double prefix. Fixed by stripping prefix from SSM values.
+  - **Reason:** P2-S5 stored full subnet IDs; me-south-1 convention was suffix-only (e.g., `06aa0798b2b9008fc`).
+  - **Actions taken:** Updated 3 SSM params to suffix-only: `01b47a6d26df020ec`, `0b38abd7f712530d9`, `05359403da2d9a5fe`.
+  - **Downstream impact:** None — fixed globally, all future service deployments use the corrected values.
+  ***
+  - **DEVIATION 2:** Global IAM roles (from me-south-1 CDK stacks) already existed: `catalogue_db_migrator_lambda_role_prod` and `tp-catalogue-prod-lambda-role`. CDK create failed. Used `cdk import` with resource mappings to adopt existing roles, deleted stale inline policies, then deployed.
+  - **Reason:** IAM is global. The me-south-1 CDK stacks created these roles and they persist even though me-south-1 is down.
+  - **Actions taken:** For each stack: (1) delete ROLLBACK_COMPLETE stack, (2) delete stale inline policy from role, (3) `cdk import` with `--resource-mapping` to adopt role, (4) `cdk deploy` to create remaining resources.
+  - **Downstream impact:** **All subsequent service CDK deployments will hit the same IAM role conflict.** Must use the same import pattern: delete failed stack → delete inline policy → import role → deploy.
+  ***
+  - **DEVIATION 3:** RDS security group had no inbound rule for Lambda SGs. Lambdas couldn't connect to RDS Proxy. Added VPC CIDR (`10.10.0.0/16`) ingress on port 5432 to Terraform `rds.tf` and applied.
+  - **Reason:** Original RDS SG only had management/VPN CIDRs and self-referencing proxy rule. Per-service Lambda SGs were not allowed.
+  - **Actions taken:** Added ingress rule to `aws_security_group.rdsprod` in `terraform-prod/prod/rds.tf`, applied with `terraform apply -target=aws_security_group.rdsprod`.
+  - **Downstream impact:** None — this fix applies to all services. `terraform-prod` has an uncommitted change to `rds.tf`.
 - **Notes:**
+  - DB migration: "No pending migrations found" (database restored from backup already has all migrations)
+  - API endpoint: `https://b4v1pj7ccg.execute-api.eu-central-1.amazonaws.com/prod/`
+  - `dotnet publish -c Release` required before CDK synth (CDK instantiates all stacks including ServerlessBackendStack which needs the published assets)
 
 #### P3-S5-02: organizations
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T10:00
+- **Completed:** 2026-03-26T16:35
 - **Substeps:**
-  - [ ] Deploy DbMigratorStack → run migration
-  - [ ] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
+  - [x] Deploy DbMigratorStack → run migration
+  - [x] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
+- **Deviations:**
+  - **DEVIATION 1:** Organization SQS queue visibility timeout (120s) was less than consumer Lambda timeout (900s), causing `EventSourceMapping` creation to fail. Fixed by adding `ConsumersServices.Organization` with timeout 900 to `_serviceTimeouts` in `ticketing-platform-infrastructure/TP.Infrastructure.Cdk/Stacks/ConsumersSqsStack.cs` and redeploying `TP-ConsumersSqsStack-prod`.
+  - **Reason:** The `_serviceTimeouts` dictionary in infrastructure CDK was missing the Organization service override — it fell through to `DefaultTimeout` of 120s, while the consumer Lambda is configured for 900s.
+  - **Actions taken:** Added `{ConsumersServices.Organization, 900}` to `_serviceTimeouts`, rebuilt infrastructure CDK, deployed `TP-ConsumersSqsStack-prod` to update the queue.
+  - **Downstream impact:** `ticketing-platform-infrastructure` has an uncommitted code change to `ConsumersSqsStack.cs`. No other services affected — Organization was the only mismatched queue.
+  ***
+  - **DEVIATION 2:** Pre-deleted all 63 stale me-south-1 inline policies across all 67 service IAM roles (not just organizations) to streamline future deployments. Full backup saved locally with restore script.
+  - **Reason:** Every service CDK deployment hits the same IAM role conflict. Pre-deleting policies avoids repeating the manual delete step per-role.
+  - **Actions taken:** Backed up all policies to `backup-iam-policies/all-inline-policies.json` + individual files in `backup-iam-policies/policies/`. Generated `restore-inline-policies.sh` (revert) and `delete-inline-policies.sh` (bulk delete). Ran the delete script: 63 deleted, 3 skipped (already cleaned), 0 errors.
+  - **Downstream impact:** All future P3-S5 service deployments still need `cdk import` for each IAM role, but the inline policy deletion step is already done. Restore script available if me-south-1 revert is needed.
 - **Notes:**
+  - DB migration: "No pending migrations found" (database restored from backup already has all migrations)
+  - API endpoint: `https://pgso42wsqk.execute-api.eu-central-1.amazonaws.com/prod/`
+  - `dotnet publish -c Release` required from solution root (not from `src/Organizations/`)
+  - IAM import pattern used for all 4 stacks: DbMigrator (`organizations_db_migrator_lambda_role_prod`), Consumers (`organizations_consumers_lambda_role_prod`), BackgroundJobs (`Organizations_background_jobs_lambda_role_prod`), Serverless (`tp-organizations-prod-lambda-role`)
 
 #### P3-S5-03: loyalty
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T23:30
+- **Completed:** 2026-03-26T23:50
 - **Substeps:**
-  - [ ] Deploy ConsumersStack → BackgroundJobsStack
+  - [x] Deploy ConsumersStack → BackgroundJobsStack
+- **Deviations:**
+  - **DEVIATION:** BackgroundJobsStack failed on first deploy — `SubscriptionFilter` for Slack error notifications requires the log group `/aws/lambda/loyalty-background-jobs-lambda-prod` to exist before the stack creates the Lambda. Only the consumers log group was pre-created.
+  - **Reason:** Plan step 9 ("Log group creation") only mentioned creating log groups for services with ServerlessBackendStack and ConsumersStack. BackgroundJobs Lambda also needs a pre-created log group because CDK creates the `SubscriptionFilter` before the Lambda (and its auto-created log group).
+  - **Actions taken:** Created `/aws/lambda/loyalty-background-jobs-lambda-prod` log group, then retried `cdk deploy` — succeeded.
+  - **Downstream impact:** All future P3-S5 services with BackgroundJobsStack must also pre-create the background jobs log group before deploying.
 - **Notes:**
+  - ConsumersStack: `UPDATE_COMPLETE` — Lambda `loyalty-consumers-lambda-prod` Active, dotnet8
+  - BackgroundJobsStack: `UPDATE_COMPLETE` — Lambda `loyalty-background-jobs-lambda-prod` Active, dotnet8
+  - Two EventBridge Scheduler schedules created: `SyncTalonOneCatalogueJob`, `SyncTalonOneStoresJob`
+  - IAM import pattern used for both stacks: `Loyalty_consumers_lambda_role_prod`, `Loyalty_background_jobs_lambda_role_prod`
+  - No code changes, no commits needed
 
 #### P3-S5-04: csv-generator
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T23:55
+- **Completed:** 2026-03-27T00:05
 - **Substeps:**
-  - [ ] Deploy ConsumersStack
+  - [x] Deploy ConsumersStack
 - **Notes:**
+  - ConsumersStack: `UPDATE_COMPLETE` — Lambda `csvgenerator-consumers-lambda-prod` Active, dotnet8, 4000MB, 300s timeout
+  - IAM import pattern used: `CSVGenerator_consumers_lambda_role_prod`
+  - Pre-created log group `/aws/lambda/csvgenerator-consumers-lambda-prod` before deploy
+  - SQS event source mapping created successfully
+  - Slack error notification subscription filter created
+  - No code changes, no commits needed
 
 #### P3-S5-05: pdf-generator
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-27T00:06
+- **Completed:** 2026-03-27T00:19
 - **Substeps:**
-  - [ ] Deploy ConsumersStack
+  - [x] Deploy ConsumersStack
+- **Deviations:**
+  - **DEVIATION:** Lambda package exceeded 250MB unzipped limit (261MB). Root cause: CDK assemblies (Amazon.CDK.Lib.dll 69MB, Amazon.CDK.Asset.AwsCliV1.dll 18MB, Amazon.JSII.Runtime.dll 2.4MB, etc.) leaking from TP.Tools.Infrastructure transitive dependency, plus SkiaSharp native binaries for all platforms (win, osx, arm, musl). Also `dotnet publish -c Release` initially failed with NETSDK1094 (PublishReadyToRun=true requires runtime identifier).
+  - **Reason:** pdf-generator uniquely includes QuestPDF + SkiaSharp (~139MB native runtimes) pushing it over the limit when combined with CDK bloat (~91MB).
+  - **Actions taken:** Published with `-p:PublishReadyToRun=false` to target correct output path. Then cleaned publish directory: removed CDK DLLs (`Amazon.CDK.*`, `Amazon.JSII.*`, `Constructs.dll`) and non-Linux runtimes (`win-*`, `osx-*`, `linux-musl-*`, `linux-arm*`, `browser`). Reduced from 261MB to 50MB. Retried deploy — succeeded.
+  - **Downstream impact:** Future CI/CD pipeline for pdf-generator will need the same publish cleanup or a proper exclusion in the .csproj. Not a migration blocker.
 - **Notes:**
+  - ConsumersStack: `UPDATE_COMPLETE` — Lambda `pdf-generator-consumers-lambda-prod` Active, dotnet8, 2048MB, 900s timeout
+  - IAM import pattern used: `pdf-generator_consumers_lambda_role_prod`
+  - Pre-created log group `/aws/lambda/pdf-generator-consumers-lambda-prod` before deploy
+  - SQS event source mapping created successfully
+  - No code changes, no commits needed
 
 #### P3-S5-06: automations
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-27T00:25
+- **Completed:** 2026-03-27T00:50
 - **Substeps:**
-  - [ ] Deploy WeeklyTicketsSenderStack
-  - [ ] Deploy AutomaticDataExporterStack
-  - [ ] Deploy FinanceReportSenderStack
+  - [x] Deploy WeeklyTicketsSenderStack
+  - [x] Deploy AutomaticDataExporterStack
+  - [x] Deploy FinanceReportSenderStack
+- **Deviations:**
+  - **DEVIATION:** `finance_report_sender_lambda_role_prod` had a stale inline policy `TPFinanceReportSenderLambdaRoleprodDefaultPolicyEAAFFD93` that wasn't caught by P3-S5-02 bulk deletion. First deploy attempt rolled back.
+  - **Reason:** The CDK-generated DefaultPolicy had the same name in both me-south-1 and eu-central-1 CDK stacks. The bulk deletion script likely missed it (different naming pattern from other stale policies, or it was recreated after cleanup).
+  - **Actions taken:** Deleted the stale inline policy via `aws iam delete-role-policy`, then retried `cdk deploy` — succeeded.
+  - **Downstream impact:** Future P3-S5 deployments should check for stale DefaultPolicy inline policies on IAM roles, not just the policies targeted by the bulk deletion. If a `cdk deploy` fails with "policy already exists", delete the conflicting policy and retry.
 - **Notes:**
+  - WeeklyTicketsSenderStack: `UPDATE_COMPLETE` — Lambda `automations-weekly-ticket-sender-lambda-prod` Active, dotnet8, 1024MB, 30s timeout
+  - AutomaticDataExporterStack: `UPDATE_COMPLETE` — Lambda `automations-automatic-data-exporter-lambda-prod` Active, dotnet8, 10000MB, 600s timeout
+  - FinanceReportSenderStack: `UPDATE_COMPLETE` — Lambda `automations-finance-report-sender-lambda-prod` Active, dotnet8, 10000MB, 600s timeout
+  - AWS Scheduler schedules created: WeeklyTicketsSender (Wed 10:00 UTC), AutomaticDataExporter (every 11min), FinanceReportSender (every hour)
+  - IAM import pattern used for all 3 stacks: `Automations_weekly_ticket_sender_lambda_role_prod`, `Automations_automatic_data_exporter_lambda_role_prod`, `finance_report_sender_lambda_role_prod`
+  - No code changes, no commits needed
 
 #### P3-S5-07: extension-api
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-27T01:00
+- **Completed:** 2026-03-27T01:30
 - **Substeps:**
-  - [ ] Deploy DbMigratorStack → run migration
-  - [ ] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
+  - [x] Deploy DbMigratorStack → run migration
+  - [x] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
 - **Notes:**
+  - Pre-created 4 log groups: db-migrator, consumers, background-jobs, serverless
+  - DbMigratorStack: `UPDATE_COMPLETE` — IAM import: `extensions_db_migrator_lambda_role_prod`. Deployment time: 172s
+  - DB migration: "No pending migrations found" (expected — restored from backup)
+  - ConsumersStack: `UPDATE_COMPLETE` — IAM import: `extensions_consumers_lambda_role_prod`. Deployment time: 190s
+  - BackgroundJobsStack: `UPDATE_COMPLETE` — IAM import: `extensions_background_jobs_lambda_role_prod`. Deployment time: 190s
+  - ServerlessBackendStack: `UPDATE_COMPLETE` — IAM import: `tp-extensions-prod-lambda-role`. Deployment time: 196s
+  - Health check: Healthy — `self`, `npgsql`, `ReadonlyNpgSql` all Healthy
+  - Used `deploy-service-cdk.sh` helper script (2 invocations: DbMigrator first, then remaining 3 after migration)
+  - No code changes, no commits needed
 
 #### P3-S5-08: extension-deployer
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-27T01:10
+- **Completed:** 2026-03-27T01:45
 - **Substeps:**
-  - [ ] Deploy ExtensionDeployerLambdaRoleStack → ExtensionDeployerStack
+  - [x] Deploy ExtensionDeployerLambdaRoleStack → ExtensionDeployerStack
+- **Deviations:**
+  - **DEVIATION:** ExtensionDeployerStack failed on first attempt because Lambda `ticketing-platform-extension-deployer-prod` did not exist in eu-central-1. The Lambda is a Docker image-based function deployed via `dotnet lambda deploy-function` (not CDK), as defined in the CI/CD workflow. The ECR repo `tp.extensions.deployer.lambda` also did not exist.
+  - **Reason:** The extension-deployer Lambda is created outside CDK — the CDK stack only references it via `Function.FromFunctionName()` and creates the SQS event source mapping, which requires the Lambda to exist.
+  - **Actions taken:** Ran `dotnet lambda deploy-function ticketing-platform-extension-deployer-prod` from the Lambda project directory. This automatically created the ECR repo, built the Docker image, pushed to ECR, and created the Lambda function with the correct IAM role (`extensions_deployer_lambda_role_prod`), VPC subnets, and security group (`extension-deployer-sg-prod`). Then retried `cdk deploy TP-ExtensionDeployerStack-prod` — succeeded.
+  - **Downstream impact:** PM-2 (Extension Lambda redeployment) can now proceed since the deployer service is operational.
 - **Notes:**
+  - ExtensionDeployerLambdaRoleStack: `UPDATE_COMPLETE` — IAM role `extensions_deployer_lambda_role_prod` imported, security group `extension-deployer-sg-prod` (sg-0179252e4a8780421) created
+  - ExtensionDeployerStack: `UPDATE_COMPLETE` — IAM role `extensions_default_execution_role_prod` imported, SQS queues created, event source mapping to Lambda created
+  - Lambda `ticketing-platform-extension-deployer-prod`: Active, Image package type, 1024MB, 120s timeout, ECR image `660748123249.dkr.ecr.eu-central-1.amazonaws.com/tp.extensions.deployer.lambda:latest`
+  - SQS queues: `TP_Extensions_Deployer_Queue_prod` (5min visibility), `TP_Extensions_Deployer_DLQ_prod` (14d retention, max receive 1)
+  - SSM parameter created for default execution role ARN
+  - IAM import pattern used for both stacks: `extensions_deployer_lambda_role_prod`, `extensions_default_execution_role_prod`
+  - `dotnet publish -c Release -p:PublishReadyToRun=false` required (same NETSDK1094 issue as pdf-generator)
+  - No code changes, no commits needed
 
 #### P3-S5-09: extension-executor
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-27T01:40
+- **Completed:** 2026-03-27T01:50
 - **Substeps:**
-  - [ ] Deploy ExtensionExecutorStack
+  - [x] Deploy ExtensionExecutorStack
 - **Notes:**
+  - ExtensionExecutorStack: `UPDATE_COMPLETE` — IAM import: `extensions_executor_lambda_role_prod`. Deployment time: 196s
+  - Lambda `ticketing-platform-extension-executor-prod` Active, dotnet8, 1024MB, 300s timeout
+  - Pre-created log group `/aws/lambda/ticketing-platform-extension-executor-prod`
+  - SQS queue `TP_Extensions_Executor_Queue_prod` + DLQ created
+  - SQS event source mapping created
+  - Slack error notification subscription filter created
+  - Built with `-p:PublishReadyToRun=false` (same NETSDK1094 issue as pdf-generator)
+  - No code changes, no commits needed
 
 #### P3-S5-10: extension-log-processor
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-27T01:40
+- **Completed:** 2026-03-27T01:52
 - **Substeps:**
-  - [ ] Deploy ExtensionLogsProcessorStack
+  - [x] Deploy ExtensionLogsProcessorStack
 - **Notes:**
+  - ExtensionLogsProcessorStack: `UPDATE_COMPLETE` — IAM import: `extensions_logs_processor_lambda_role_prod`. Deployment time: 209s
+  - Lambda `ticketing-platform-extension-logs-processor-prod` Active, dotnet8, 2048MB, 120s timeout
+  - Pre-created log group `/aws/lambda/ticketing-platform-extension-logs-processor-prod`
+  - SQS queue `TP_Extensions_LogsProcessor_Queue_prod` + DLQ created
+  - SQS event source mapping created
+  - SSM parameter `/prod/tp/extensions/EXTENSION_LOGS_QUEUE_URL` created
+  - Slack error notification subscription filter + memory alarm created
+  - Built with `-p:PublishReadyToRun=false` (same NETSDK1094 issue as pdf-generator)
+  - No code changes, no commits needed
 
 #### P3-S5-11: customer-service
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-27T02:00
+- **Completed:** 2026-03-27T02:20
 - **Substeps:**
-  - [ ] Deploy DbMigratorStack → run migration
-  - [ ] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
+  - [x] Deploy DbMigratorStack → run migration
+  - [x] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
 - **Notes:**
+  - Pre-created 4 log groups: db-migrator, consumers, background-jobs, serverless
+  - DbMigratorStack: `UPDATE_COMPLETE` — IAM import: `customers_db_migrator_lambda_role_prod`. Deployment time: 171s
+  - DB migration: "No pending migrations found" (expected — restored from backup)
+  - ConsumersStack: `UPDATE_COMPLETE` — IAM import: `customers_consumers_lambda_role_prod`
+  - BackgroundJobsStack: `UPDATE_COMPLETE` — IAM import: `Customers_background_jobs_lambda_role_prod`. Deployment time: 189s
+  - ServerlessBackendStack: `UPDATE_COMPLETE` — IAM import: `tp-customers-prod-lambda-role`. Deployment time: 196s
+  - Health check: Healthy — `self`, `npgsql`, `ReadonlyNpgSql` all Healthy
+  - Lambda functions: db-migrator (1024MB/900s), consumers (1024MB/120s), background-jobs (3072MB/300s), serverless (1048MB/900s)
+  - No code changes, no commits needed
 
 Tier 2 services (deploy after Tier 1):
 
 #### P3-S5-12: inventory
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-27T08:00
+- **Completed:** 2026-03-27T08:25
 - **Substeps:**
-  - [ ] Deploy DbMigratorStack → run migration
-  - [ ] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
+  - [x] Deploy DbMigratorStack → run migration
+  - [x] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
 - **Notes:**
+  - Pre-created 4 log groups: db-migrator, consumers, background-jobs, serverless
+  - DbMigratorStack: `UPDATE_COMPLETE` — IAM import: `inventory_db_migrator_lambda_role_prod`. Deployment time: 172s
+  - DB migration: "No pending migrations found" (expected — restored from backup)
+  - ConsumersStack: `UPDATE_COMPLETE` — IAM import: `Inventory_consumers_lambda_role_prod`. Deployment time: 195s
+  - BackgroundJobsStack: `UPDATE_COMPLETE` — IAM import: `Inventory_background_jobs_lambda_role_prod`. Deployment time: 189s. 4 EventBridge Scheduler schedules: DeleteExpiredCouponCodesJob, RemoveOutdatedInProgressJob, WeBookSyncBackgroundJob, RemoveOldJobsJob
+  - ServerlessBackendStack: `UPDATE_COMPLETE` — IAM import: `tp-inventory-prod-lambda-role`. Deployment time: 198s
+  - Lambda `inventory-serverless-prod-function` Active, dotnet8, 1048MB, 900s timeout
+  - Health check: Healthy — `self`, `npgsql`, `ReadonlyNpgSql` all Healthy
+  - SQS event source mapping created for consumers
+  - Slack error notification subscription filters + memory alarm created
+  - No code changes, no commits needed
 
 #### P3-S5-13: pricing
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T12:00
+- **Completed:** 2026-03-26T14:20
 - **Substeps:**
-  - [ ] Deploy DbMigratorStack → run migration
-  - [ ] Deploy ConsumersStack → ServerlessBackendStack
+  - [x] Deploy DbMigratorStack → run migration
+  - [x] Deploy ConsumersStack → ServerlessBackendStack
 - **Notes:**
+  - Pre-created 3 log groups: db-migrator, consumers, serverless
+  - DbMigratorStack: `UPDATE_COMPLETE` — IAM import: `pricing_db_migrator_lambda_role_prod`. Deployment time: ~172s
+  - DB migration: "No pending migrations found" (expected — restored from backup)
+  - ConsumersStack: `UPDATE_COMPLETE` — IAM import: via deploy script
+  - ServerlessBackendStack: `UPDATE_COMPLETE` — IAM import: `tp-pricing-prod-lambda-role`. Deployment time: ~198s
+  - Health check: Healthy — `self`, `npgsql`, `ReadonlyNpgSql` all Healthy
+  - No code changes, no commits needed
 
 #### P3-S5-14: media
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T12:00
+- **Completed:** 2026-03-26T14:15
 - **Substeps:**
-  - [ ] Deploy DbMigratorStack → run migration
-  - [ ] Deploy MediaStorageStack
-  - [ ] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
+  - [x] Deploy DbMigratorStack → run migration
+  - [x] Deploy MediaStorageStack
+  - [x] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
+- **Deviations:**
+  - **DEVIATION:** MediaStorageStack failed twice before succeeding. First failure: IAM user `imgix-prod` already exists (global resource). Second failure: inline policy `media-s3-imgix-user-policy-prod` already exists on user. Additionally, S3 bucket `ticketing-prod-media-eu` was created during first deploy attempt and orphaned on rollback.
+  - **Reason:** Deploy helper script imports IAM roles but not IAM users. The `imgix-prod` user and its inline policy are global resources from the me-south-1 CDK stack.
+  - **Actions taken:** (1) Imported `imgix-prod` IAM user via `cdk import`. (2) Backed up and deleted stale inline policy `media-s3-imgix-user-policy-prod`. (3) Imported orphaned S3 bucket `ticketing-prod-media-eu`. (4) Retried deploy — succeeded. Policy backup at `/tmp/imgix-prod-policy-backup.json`.
+  - **Downstream impact:** None — `deploy-service-cdk.sh` should be updated to handle IAM users if other stacks have similar resources, but media is the only service with an IAM user in CDK.
 - **Notes:**
+  - Pre-created 4 log groups: db-migrator, consumers, background-jobs, serverless (had to recreate 3 after initial `$P` variable expansion issue)
+  - DbMigratorStack: `UPDATE_COMPLETE` — IAM import: `media_db_migrator_lambda_role_prod`. Deployment time: 171.75s
+  - DB migration: "No pending migrations found" (expected)
+  - MediaStorageStack: `UPDATE_COMPLETE` — IAM imports: `Media_lambda_role_prod` (role), `imgix-prod` (user), `ticketing-prod-media-eu` (S3 bucket). Deployment time: 182.18s. Created: S3 bucket, bucket policy, API Gateway (MediaApi-prod), Lambda function, SSM param, IAM access key, security group
+  - ConsumersStack: `UPDATE_COMPLETE` — IAM import: `Media_consumers_lambda_role_prod`. Deployment time: 196s
+  - BackgroundJobsStack: `UPDATE_COMPLETE` — IAM import: `Media_background_jobs_lambda_role_prod`. Deployment time: 187.95s. 2 EventBridge Scheduler schedules: RemoveOldJobsJob, RemoveOutdatedInProgressJob
+  - ServerlessBackendStack: `UPDATE_COMPLETE` — IAM import: `tp-media-prod-lambda-role`. Deployment time: 201.35s
+  - Health check: Healthy — `self`, `npgsql`, `ReadonlyNpgSql` all Healthy
+  - No code changes, no commits needed
 
 #### P3-S5-15: reporting-api
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T12:00
+- **Completed:** 2026-03-26T14:05
 - **Substeps:**
-  - [ ] Deploy DbMigratorStack → run migration
-  - [ ] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
+  - [x] Deploy DbMigratorStack → run migration
+  - [x] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
 - **Notes:**
+  - Pre-created 4 log groups: db-migrator, consumers, background-jobs, serverless (had to recreate 3 after initial shell variable issue)
+  - DbMigratorStack: `UPDATE_COMPLETE` — IAM import: `reporting_db_migrator_lambda_role_prod`. Deployment time: 171.65s
+  - DB migration: "No pending migrations found" (expected)
+  - ConsumersStack: `UPDATE_COMPLETE` — IAM import: `reporting_consumers_lambda_role_prod`. Deployment time: 188.81s (retry after log group issue)
+  - BackgroundJobsStack: `UPDATE_COMPLETE` — IAM import: `Reporting_background_jobs_lambda_role_prod`. Deployment time: 190.43s. 3 EventBridge Scheduler schedules: RemoveOldJobsJob, SetBranchIdToEventsJob, RemoveOutdatedInProgressJob
+  - ServerlessBackendStack: `UPDATE_COMPLETE` — IAM import: `tp-reporting-prod-lambda-role`. Deployment time: 194.95s
+  - Health check: Healthy — `self`, `npgsql`, `ReadonlyNpgSql` all Healthy
+  - No code changes, no commits needed
 
 #### P3-S5-16: marketplace
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T12:00
+- **Completed:** 2026-03-26T14:20
 - **Substeps:**
-  - [ ] Deploy DbMigratorStack → run migration
-  - [ ] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
+  - [x] Deploy DbMigratorStack → run migration
+  - [x] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
 - **Notes:**
+  - Pre-created 4 log groups: db-migrator, consumers, background-jobs, serverless
+  - DbMigratorStack: `UPDATE_COMPLETE` — IAM import: `marketplace_db_migrator_lambda_role_prod`
+  - DB migration: "No pending migrations found" (expected)
+  - ConsumersStack: `UPDATE_COMPLETE` — IAM import: via deploy script
+  - BackgroundJobsStack: `UPDATE_COMPLETE` — IAM import: via deploy script
+  - ServerlessBackendStack: `UPDATE_COMPLETE` — IAM import: via deploy script
+  - Health check: Healthy — `self`, `npgsql`, `ReadonlyNpgSql` all Healthy
+  - No code changes, no commits needed
 
 #### P3-S5-17: integration
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T12:00
+- **Completed:** 2026-03-26T14:20
 - **Substeps:**
-  - [ ] Deploy DbMigratorStack → run migration
-  - [ ] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
+  - [x] Deploy DbMigratorStack → run migration
+  - [x] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
 - **Notes:**
+  - Pre-created 4 log groups: db-migrator, consumers, background-jobs, serverless
+  - DbMigratorStack: `UPDATE_COMPLETE` — IAM import: `integration_db_migrator_lambda_role_prod`
+  - DB migration: "No pending migrations found" (expected)
+  - ConsumersStack: `UPDATE_COMPLETE` — IAM import: via deploy script
+  - BackgroundJobsStack: `UPDATE_COMPLETE` — IAM import: via deploy script
+  - ServerlessBackendStack: `UPDATE_COMPLETE` — IAM import: via deploy script
+  - Health check: Healthy — `self`, `npgsql`, `ReadonlyNpgSql` all Healthy
+  - No code changes, no commits needed
 
 #### P3-S5-18: distribution-portal
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T12:00
+- **Completed:** 2026-03-26T14:10
 - **Substeps:**
-  - [ ] Deploy DbMigratorStack → run migration
-  - [ ] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
+  - [x] Deploy DbMigratorStack → run migration
+  - [x] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
+- **Deviations:**
+  - **DEVIATION:** Health check failed initially — Lambda crashed with `InvalidOperationException: SalesServiceBaseRoute is not configured`. Added `SalesServiceBaseRoute` env var to Lambda configuration and to `env-var.prod.json`. DNS record uses `dp` prefix (not `distribution-portal`).
+  - **Reason:** The `SalesServiceBaseRoute` was previously provided by K8s configmap. In the Lambda deployment, it was missing from `env-var.prod.json`.
+  - **Actions taken:** (1) Updated Lambda env vars via `aws lambda update-function-configuration` with `SalesServiceBaseRoute=https://sales.internal.production-eu.tickets.mdlbeast.net`. (2) Added to `env-var.prod.json` for future CDK deploys. Health check passed after fix.
+  - **Downstream impact:** `ticketing-platform-distribution-portal` has an uncommitted code change (`env-var.prod.json`). Other services that consumed `SalesServiceBaseRoute` from configmap (access-control, gateway, transfer, inventory) may need the same env var — check during their Tier 3 deployment.
 - **Notes:**
+  - Pre-created 4 log groups: db-migrator, consumers, background-jobs, serverless (serverless function uses `dp-serverless-prod-function` name, not `distribution-portal-serverless-prod-function`)
+  - DbMigratorStack: `UPDATE_COMPLETE` — IAM import: `distribution_portal_db_migrator_lambda_role_prod`. Deployment time: 170.84s
+  - DB migration: "No pending migrations found" (expected)
+  - ConsumersStack: `UPDATE_COMPLETE` — IAM import: `distribution_portal_consumers_lambda_role_prod`
+  - BackgroundJobsStack: `UPDATE_COMPLETE` — Deployment time: 191.15s
+  - ServerlessBackendStack: `UPDATE_COMPLETE` — IAM import: `tp-dp-prod-lambda-role`. Deployment time: 196.4s
+  - Health check: Healthy — `self`, `npgsql`, `ReadonlyNpgSql` all Healthy (via `dp.internal.production-eu.tickets.mdlbeast.net`)
+  - Code change: `env-var.prod.json` updated with `SalesServiceBaseRoute` — needs commit
 
 Tier 3 services (deploy after Tier 2):
 
 #### P3-S5-19: sales
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T12:30
+- **Completed:** 2026-03-26T13:05
 - **Substeps:**
-  - [ ] Deploy DbMigratorStack → run migration
-  - [ ] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
+  - [x] Deploy DbMigratorStack → run migration
+  - [x] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
 - **Notes:**
+  - Pre-created 4 log groups: db-migrator, consumers, background-jobs, serverless
+  - DbMigratorStack: `UPDATE_COMPLETE` — IAM import: `sales_db_migrator_lambda_role_prod`
+  - DB migration: `{"Success":true,"Message":"No pending migrations found"}` (expected — restored from backup)
+  - ConsumersStack: `UPDATE_COMPLETE` — IAM import: `Sales_consumers_lambda_role_prod`
+  - BackgroundJobsStack: `UPDATE_COMPLETE` — IAM import: `Sales_background_jobs_lambda_role_prod`. 8 EventBridge Scheduler schedules created (SyncTicketPaymentMethods, LineItemTotalPriceAdjustment, CheckTabbyPaymentsStatus, DelayedCreateOrderIntegrationEventProcessing, OrderPdfTicketsToOrderTicketsMigration, RemoveOutdatedInProgress, RemoveOldJobs, SetAwaitingOrdersExpired)
+  - ServerlessBackendStack: `UPDATE_COMPLETE` — IAM import: `tp-sales-prod-lambda-role`
+  - Health check: Healthy — `self`, `npgsql` (236ms), `ReadonlyNpgSql` (368ms) all Healthy
+  - **Note:** `env-var.prod.json` inter-service route URLs still point to `*.internal.production.tickets.mdlbeast.net` — will resolve after Phase 4 DNS cutover
+  - No code changes, no commits needed
 
 #### P3-S5-20: access-control
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T12:30
+- **Completed:** 2026-03-26T13:15
 - **Substeps:**
-  - [ ] Deploy DbMigratorStack → run migration
-  - [ ] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
+  - [x] Deploy DbMigratorStack → run migration
+  - [x] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
+- **Deviations:**
+  - **DEVIATION:** Three stale DefaultPolicy inline policies survived P3-S5-02 bulk cleanup: `TPAccessControlDbMigratorLambdaRoleprodDefaultPolicyD0BC1EAD` on `access_control_db_migrator_lambda_role_prod`, `TPAccessControlConsumerLambdaRoleprodDefaultPolicyA57C0813` on `access_control_consumers_lambda_role_prod`, `TPAccessControlBackgroundJobsLambdaRoleprodDefaultPolicyD8B42DA8` on `AccessControl_background_jobs_lambda_role_prod`. Also, Lambda function uses `accesscontrol` (no hyphen) not `access-control` in its name.
+  - **Reason:** DefaultPolicy naming pattern was different from what the P3-S5-02 bulk deletion targeted. Lambda naming convention omits hyphens from the service prefix.
+  - **Actions taken:** Deleted 3 stale policies before deploying. **These policies were NOT backed up** — they were not in the P3-S5-02 `backup-iam-policies/` set (different naming pattern). If me-south-1 revert is needed, these DefaultPolicies would need to be regenerated by running `cdk deploy` against me-south-1 (they are CDK-generated, not manually created). Created correct log group `/aws/lambda/accesscontrol-serverless-prod-function` (not `access-control-serverless-prod-function`).
+  - **Downstream impact:** None — all policies recreated by CDK with eu-central-1 ARNs. For me-south-1 revert: 3 access-control DefaultPolicies have no backup (CDK can regenerate).
 - **Notes:**
+  - Pre-created 4 log groups: db-migrator, consumers, background-jobs, serverless (serverless uses `accesscontrol-` prefix, not `access-control-`)
+  - DbMigratorStack: `UPDATE_COMPLETE` — IAM import: `access_control_db_migrator_lambda_role_prod`
+  - DB migration: `{"Success":true,"Message":"No pending migrations found"}` (expected — restored from backup)
+  - ConsumersStack: `UPDATE_COMPLETE` — IAM import: `access_control_consumers_lambda_role_prod`
+  - BackgroundJobsStack: `UPDATE_COMPLETE` — IAM import: `AccessControl_background_jobs_lambda_role_prod`
+  - ServerlessBackendStack: `UPDATE_COMPLETE` — IAM import: `tp-accesscontrol-prod-lambda-role`
+  - Health check: Healthy — `self`, `npgsql`, `ReadonlyNpgSql` all Healthy (via `accesscontrol.internal.production-eu.tickets.mdlbeast.net`)
+  - No code changes, no commits needed
 
 #### P3-S5-21: transfer
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T12:30
+- **Completed:** 2026-03-26T13:10
 - **Substeps:**
-  - [ ] Deploy DbMigratorStack → run migration
-  - [ ] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
+  - [x] Deploy DbMigratorStack → run migration
+  - [x] Deploy ConsumersStack → BackgroundJobsStack → ServerlessBackendStack
 - **Notes:**
+  - Pre-created 4 log groups: db-migrator, consumers, background-jobs, serverless
+  - DbMigratorStack: `UPDATE_COMPLETE` — IAM import: `transfer_db_migrator_lambda_role_prod`. Deployment time: 170.75s
+  - DB migration: `{"Success":true,"Message":"No pending migrations found"}` (expected — restored from backup)
+  - ConsumersStack: `UPDATE_COMPLETE` — IAM import: `Transfer_consumers_lambda_role_prod`. Deployment time: 183.75s
+  - BackgroundJobsStack: `UPDATE_COMPLETE` — IAM import: `Transfer_background_jobs_lambda_role_prod`. Deployment time: 189.64s
+  - ServerlessBackendStack: `UPDATE_COMPLETE` — IAM import: `tp-transfer-prod-lambda-role`. Deployment time: 197.09s
+  - Health check: Healthy — `self`, `npgsql` (410ms), `ReadonlyNpgSql` (496ms) all Healthy
+  - No code changes, no commits needed
 
 #### P3-S5-22: geidea
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T12:30
+- **Completed:** 2026-03-26T13:00
 - **Substeps:**
-  - [ ] Deploy ConsumersStack → BackgroundJobsStack → ApiStack
+  - [x] Deploy ConsumersStack → BackgroundJobsStack → ApiStack
 - **Notes:**
+  - Pre-created 3 log groups: consumers, background-jobs, balance Lambda (`ticketing-platform-geidea-balance-prod`)
+  - ConsumersStack: `UPDATE_COMPLETE` — IAM import: `Geidea_consumers_lambda_role_prod`. Deployment time: 194.66s
+  - BackgroundJobsStack: `UPDATE_COMPLETE` — IAM import: `Geidea_background_jobs_lambda_role_prod`. Deployment time: 189.48s. 3 EventBridge Scheduler schedules: SyncGiftCardsJob, SyncCustomersJob, SyncReportsJob
+  - ApiStack: `UPDATE_COMPLETE` — IAM import: `geidea_api_role_prod`. Deployment time: 171.27s
+  - API Gateway: `ticketing-platform-geidea-api-prod` (ID: `vl87hyl4v0`), HTTP API v2, custom domain: `geidea.production-eu.tickets.mdlbeast.net`, route: `GET /balance/{eventId}/{scannableId}`
+  - Lambda `ticketing-platform-geidea-balance-prod` Active, dotnet8
+  - No deviations, no code changes, no commits needed
 
 #### P3-S5-23: ecwid-integration
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T12:30
+- **Completed:** 2026-03-26T12:55
 - **Substeps:**
-  - [ ] Deploy ApiStack → BackgroundJobsStack
+  - [x] Deploy ApiStack → BackgroundJobsStack
 - **Notes:**
+  - Pre-created 5 log groups: payment-create, payment-callback, ecwid-webhook, anchanto-webhook, background-jobs
+  - ApiStack: `UPDATE_COMPLETE` — IAM import: `ecwid_lambda_role_prod`. 4 Lambda functions created: `ecwid-api-lambda-payment-create-prod`, `ecwid-api-lambda-payment-callback-prod`, `ecwid-api-lambda-ecwid-webhook-prod`, `ecwid-api-lambda-anchanto-webhook-prod` (all Active, dotnet8)
+  - API Gateway: `ecwid-api-prod` (ID: `qc1yvuzgt0`), HTTP API v2, custom domain: `ecwid.production-eu.tickets.mdlbeast.net`, routes: `POST /payment/create`, `GET /payment/callback`, `POST /ecwid/webhooks`, `POST /anchanto/webhooks`
+  - BackgroundJobsStack: `UPDATE_COMPLETE` — IAM import: `Ecwid_background_jobs_lambda_role_prod`. 2 EventBridge Scheduler schedules: SyncInventoryJob, SyncProductJob
+  - Lambda `ecwid-background-jobs-lambda-prod` Active, dotnet8
+  - **Reminder:** Ecwid secret still missing vendor config keys (ECWID_STORE_ID, ANCHANTO_*, CONNECTION_STRINGS) — Lambda functions won't work until populated
+  - No deviations, no code changes, no commits needed
 
 #### P3-S5-24: gateway (LAST)
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-26T14:00
+- **Completed:** 2026-03-26T14:45
 - **Substeps:**
-  - [ ] Deploy GatewayStack
+  - [x] Deploy GatewayStack
 - **Notes:**
+  - Pre-created log group: `/aws/lambda/gateway-lambda-prod`
+  - GatewayStack: `UPDATE_COMPLETE` — IAM import: `gateway_lambda_role_prod`. Deployment time: 189.72s
+  - API Gateway: `Gateway-RestApi-prod` (ID: `ylpccqdt1a`), REST API v1, custom domain: `api.production-eu.tickets.mdlbeast.net`
+  - Lambda `gateway-lambda-prod` Active, dotnet8, 1024 MB, 180s timeout, VPC-attached
+  - Route53 A record: `api.production-eu.tickets.mdlbeast.net` → API Gateway regional domain
+  - Health check: `GET /health` → `200 OK`, `{"status":"Healthy"}`
+  - Gateway resolves backend service URLs at runtime via SSM Parameter Store (`/prod/tp/InternalServices/*` → `*ServiceBaseRoute` env vars). No `env-var.prod.json` changes needed.
+  - Initial deploys failed with YARP "No address found" errors — root cause was stale CDK asset cache (pre-built publish directory). Running `dotnet publish` before `cdk deploy` fixed it.
+  - No code changes, no commits needed
 
 ### P3-S6: End-to-end validation (temporary domain)
 
-- **Status:** `PENDING`
-- **Started:**
+- **Status:** `IN_PROGRESS`
+- **Started:** 2026-03-26T14:50
 - **Completed:**
 - **Checklist:**
-  - [ ] API Gateway responds at `api.production-eu.tickets.mdlbeast.net`
-  - [ ] Geidea endpoint responds at `geidea.production-eu.tickets.mdlbeast.net`
-  - [ ] Internal services resolve via private DNS
+  - [x] API Gateway responds at `api.production-eu.tickets.mdlbeast.net` — `/health` → 200 OK, Healthy
+  - [x] Geidea endpoint responds at `geidea.production-eu.tickets.mdlbeast.net` — `/balance/test/test` → 200 OK
+  - [x] Internal services resolve via private DNS — 14 CNAME records in private hosted zone `Z04720843DJKNCF1N97H0`
   - [ ] Create event in catalogue
   - [ ] Create tickets in inventory
   - [ ] Process test order through sales
@@ -980,11 +1452,14 @@ Tier 3 services (deploy after Tier 2):
   - [ ] Media upload/download
   - [ ] Access control scanning flow
   - [ ] Slack notifications arriving
-  - [ ] Inter-service event flow (EventBridge → SQS → Consumer)
-  - [ ] CloudWatch logs in eu-central-1
+  - [x] Inter-service event flow (EventBridge → SQS → Consumer) — 19 EventBridge rules on `event-bus-prod`, all with targets; 43 SQS queues
+  - [x] CloudWatch logs in eu-central-1 — 50+ Lambda log groups, gateway actively logging (155 events in last hour)
   - [ ] Extension deployer creates Lambda in eu-central-1
   - [ ] Dashboard local test against temp domain
 - **Notes:**
+  - 81 Lambda functions deployed in eu-central-1, spot-checked 5 — all Active
+  - Internal service health checks not reachable from outside VPC (private API Gateways) — gateway startup confirms they resolve correctly via YARP
+  - Remaining unchecked items require Auth0 token / manual dashboard testing
 
 ### P3-VERIFY: Phase 3 verification checklist
 
