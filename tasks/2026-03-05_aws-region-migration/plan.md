@@ -51,6 +51,7 @@
   - [2.3 Recreate Secrets Manager Entries](#23-recreate-secrets-manager-entries)
   - [2.4 Terraform Apply (WITHOUT RDS Cluster)](#24-terraform-apply-without-rds-cluster)
   - [2.5 Populate Manual SSM Parameters](#25-populate-manual-ssm-parameters)
+  - [2.5.1 Create DynamoDB Cache Table](#251-create-dynamodb-cache-table)
   - [2.6 Restore Aurora from AWS Backup](#26-restore-aurora-from-aws-backup)
   - [2.7 Restore S3 Data from AWS Backup](#27-restore-s3-data-from-aws-backup)
   - [2.8 CDK Bootstrap](#28-cdk-bootstrap)
@@ -65,6 +66,7 @@
   - [Phase 3 Verification Checklist](#phase-3-verification-checklist)
 - [Phase 4: DNS Cutover to Production Domain](#phase-4-dns-cutover-to-production-domain)
   - [4.1 Revert Temporary Domain Mapping in CDK](#41-revert-temporary-domain-mapping-in-cdk)
+  - [4.1.1 Publish Updated `ticketing-platform-tools` NuGet Package](#411-publish-updated-ticketing-platform-tools-nuget-package)
   - [4.2 Create ACM Certificates for Real Domain](#42-create-acm-certificates-for-real-domain)
   - [4.3 Redeploy Public-Facing Stacks](#43-redeploy-public-facing-stacks)
   - [4.4 Update GitHub Secrets \& Variables](#44-update-github-secrets--variables)
@@ -2039,7 +2041,8 @@ export CDK_DEFAULT_REGION=eu-central-1 ENV_NAME=prod
 - **IAM roles are global** — every stack's IAM role already exists from me-south-1 CDK. Must use `cdk import` before `cdk deploy`. See procedure below.
 - **Stale inline policies pre-deleted** — all 63 me-south-1 inline policies were removed in P3-S5-02. Backup at `backup-iam-policies/restore-inline-policies.sh`.
 - **DB migrations will return "No pending migrations"** — databases were restored from backup and already have all migrations.
-- **`dotnet publish -c Release`** must be run from the solution root before `cdk synth`.
+- **`dotnet lambda package -c Release`** must be run from each Lambda project directory before `cdk synth` (NOT `dotnet publish` — see DIAG-001/002). For services with API projects, `dotnet publish -c Release` from the solution root also works since `Microsoft.NET.Sdk.Web` projects generate `.runtimeconfig.json`.
+- **extension-deployer is a Docker image-based Lambda** — it is deployed via `dotnet lambda deploy-function` (not CDK). Follow its CI/CD workflow (`main.yml`). When deploying from Apple Silicon Macs, pass `--docker-build-options "--platform linux/amd64"` to avoid ARM64/x86_64 architecture mismatch (see DIAG-003).
 
 | # | Tier | Service | Stacks (deploy in order) | Has DbMigrator |
 |---|------|---------|--------------------------|----------------|
@@ -2050,7 +2053,7 @@ export CDK_DEFAULT_REGION=eu-central-1 ENV_NAME=prod
 | 5 | 1 | **pdf-generator** | ConsumersStack | NO |
 | 6 | 1 | **automations** | WeeklyTicketsSenderStack + AutomaticDataExporterStack + FinanceReportSenderStack | NO |
 | 7 | 1 | **extension-api** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
-| 8 | 1 | **extension-deployer** | ExtensionDeployerLambdaRoleStack → ExtensionDeployerStack | NO |
+| 8 | 1 | **extension-deployer** | ExtensionDeployerLambdaRoleStack → `dotnet lambda deploy-function` → ExtensionDeployerStack | NO (Docker image — see CI/CD `main.yml`) |
 | 9 | 1 | **extension-executor** | ExtensionExecutorStack | NO |
 | 10 | 1 | **extension-log-processor** | ExtensionLogsProcessorStack | NO |
 | 11 | 1 | **customer-service** | DbMigratorStack → ConsumersStack → BackgroundJobsStack → ServerlessBackendStack | YES |
@@ -2121,7 +2124,9 @@ aws logs create-log-group --log-group-name "/aws/lambda/<service>-consumers-lamb
 # Then continue deploying remaining stacks in order per matrix above
 ```
 
-**Important: always `dotnet publish -c Release` from the solution root** (not from the Cdk subdirectory) before running `cdk synth`, since CDK references published Lambda assets.
+**Important: always `dotnet lambda package -c Release` from each Lambda project directory** (not `dotnet publish`) before running `cdk synth`. `dotnet publish` does NOT generate `.runtimeconfig.json` for `Microsoft.NET.Sdk` (class library) projects — only `Microsoft.NET.Sdk.Web` API projects survive `dotnet publish`. See DIAG-001/002.
+
+**Exception — extension-deployer:** This is a Docker image-based Lambda deployed via `dotnet lambda deploy-function` following its CI/CD workflow (`main.yml`), not CDK. When deploying from Apple Silicon Macs, add `--docker-build-options "--platform linux/amd64"` (see DIAG-003).
 
 **Post-deployment verification (after each service):**
 

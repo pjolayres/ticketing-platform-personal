@@ -1,4 +1,8 @@
-Do a comprehensive review of `.personal/tasks/2026-03-05_aws-region-migration/plan.md` and `.personal/tasks/2026-03-05_aws-region-migration/execution.md`. Then await further instructions.
+Comprehensive read of `.personal/tasks/2026-03-05_aws-region-migration/plan.md` and `.personal/tasks/2026-03-05_aws-region-migration/execution.md`. Then await further instructions.
+
+=======
+
+Comprehensive read of `.personal/tasks/2026-03-05_aws-region-migration/summary.md` and `.personal/tasks/2026-03-05_aws-region-migration/diagnostics.md`. Then await further instructions.
 
 =======
 

@@ -870,11 +870,15 @@
 >
 > Reference this section before deploying each service to avoid repeated trial-and-error.
 >
-> **1. Pre-build: `dotnet publish` before CDK**
-> CDK synths ALL stacks in `Program.cs` even when deploying just one. The `ServerlessBackendStack` references the API project's published assets. Always run `dotnet publish -c Release` from the **solution root** (not the Cdk subdirectory) BEFORE any `cdk synth`/`cdk deploy`/`cdk import`.
+> **1. Pre-build: `dotnet lambda package` before CDK (NOT `dotnet publish`)**
+> CDK synths ALL stacks in `Program.cs` even when deploying just one. The `ServerlessBackendStack` references the API project's published assets. Use `dotnet lambda package -c Release` from each Lambda project directory — NOT `dotnet publish`. `dotnet publish` does NOT generate `.runtimeconfig.json` for `Microsoft.NET.Sdk` (class library) projects, which breaks all non-API Lambdas (see DIAG-001/002).
 > ```bash
-> cd ticketing-platform-<service> && dotnet publish -c Release
+> cd ticketing-platform-<service>/src/TP.<Service>.Consumers && dotnet lambda package -c Release
+> cd ticketing-platform-<service>/src/TP.<Service>.BackgroundJobs && dotnet lambda package -c Release
 > ```
+> For services with API projects (`Microsoft.NET.Sdk.Web`), `dotnet publish -c Release` from the solution root also works.
+>
+> **Exception — extension-deployer:** Docker image-based Lambda. Follow its CI/CD workflow (`main.yml`): `dotnet restore` → `dotnet build` → `dotnet lambda deploy-function` with `--docker-build-options "--platform linux/amd64"` (when deploying from Apple Silicon Macs). See DIAG-003.
 >
 > **2. CDK must run from the CDK project directory**
 > Always `cd` into the Cdk project directory before running `cdk deploy`/`cdk import`. Otherwise you get `--app is required`.
@@ -954,6 +958,23 @@
 >
 > **12. RDS SG Lambda access (FIXED — no action needed)**
 > VPC CIDR ingress on port 5432 added to Terraform `rds.tf` in P3-S5-01. All Lambda functions can reach RDS Proxy.
+>
+> **13. extension-deployer is a Docker image-based Lambda (DIAG-003)**
+> This is the only `PackageType: Image` Lambda (all other 81 are zip-based). It is deployed via `dotnet lambda deploy-function` following its CI/CD workflow (`main.yml`), NOT via CDK. CDK only creates the SQS event source mapping and references the Lambda by name.
+> **Deployment sequence** (per `main.yml`):
+> ```bash
+> cd ticketing-platform-extension-deployer
+> dotnet restore && dotnet build --no-restore
+> cd TP.Extensions.Deployer.Lambda
+> dotnet lambda deploy-function ticketing-platform-extension-deployer-prod \
+>   --function-subnets subnet-$SUBNET_1,subnet-$SUBNET_2,subnet-$SUBNET_3 \
+>   --function-security-groups $SG_ID \
+>   --function-role extensions_deployer_lambda_role_prod \
+>   --environment-variables "TP_ENVIRONMENT=prod" \
+>   --docker-build-options "--platform linux/amd64" \
+>   --region eu-central-1 --profile AdministratorAccess-660748123249
+> ```
+> **Critical:** Always pass `--docker-build-options "--platform linux/amd64"` when deploying from Apple Silicon Macs. Without it, Docker builds an ARM64 image but the Lambda expects x86_64, causing `exec format error` at runtime. Zip-based Lambdas are unaffected (AWS provides the runtime).
 
 Tier 1 services (deploy in parallel):
 
@@ -1437,7 +1458,7 @@ Tier 3 services (deploy after Tier 2):
 
 ### P3-S6: End-to-end validation (temporary domain)
 
-- **Status:** `IN_PROGRESS`
+- **Status:** `DEFERRED`
 - **Started:** 2026-03-26T14:50
 - **Completed:**
 - **Checklist:**
@@ -1447,15 +1468,15 @@ Tier 3 services (deploy after Tier 2):
   - [ ] Create event in catalogue
   - [ ] Create tickets in inventory
   - [ ] Process test order through sales
-  - [ ] PDF ticket generation
-  - [ ] CSV report generation
+  - [x] PDF ticket generation
+  - [x] CSV report generation
   - [ ] Media upload/download
   - [ ] Access control scanning flow
   - [ ] Slack notifications arriving
   - [x] Inter-service event flow (EventBridge → SQS → Consumer) — 19 EventBridge rules on `event-bus-prod`, all with targets; 43 SQS queues
   - [x] CloudWatch logs in eu-central-1 — 50+ Lambda log groups, gateway actively logging (155 events in last hour)
-  - [ ] Extension deployer creates Lambda in eu-central-1
-  - [ ] Dashboard local test against temp domain
+  - [x] Extension deployer creates Lambda in eu-central-1
+  - [x] Dashboard local test against temp domain
 - **Notes:**
   - 81 Lambda functions deployed in eu-central-1, spot-checked 5 — all Active
   - Internal service health checks not reachable from outside VPC (private API Gateways) — gateway startup confirms they resolve correctly via YARP
@@ -1463,19 +1484,25 @@ Tier 3 services (deploy after Tier 2):
 
 ### P3-VERIFY: Phase 3 verification checklist
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-27T12:00
+- **Completed:** 2026-03-27T12:15
 - **Checklist:**
-  - [ ] All 11 infrastructure stacks CREATE_COMPLETE
-  - [ ] All 24 service deployments completed
-  - [ ] All DB migrations ran successfully
-  - [ ] Lambda functions responding
-  - [ ] EventBridge rules → SQS queues (18 consumers)
-  - [ ] Internal DNS resolving
-  - [ ] API Gateway endpoints accessible
-  - [ ] All secrets have correct values (no PLACEHOLDERs remaining)
+  - [x] All 11 infrastructure stacks CREATE_COMPLETE — 11 `TP-*` infrastructure stacks confirmed (8 CREATE_COMPLETE + 3 UPDATE_COMPLETE: ConsumersSqsStack post-P3-S5-02 fix, plus CDKToolkit/LumigoIntegration non-TP stacks)
+  - [x] All 24 service deployments completed — 81 service stacks across 24 services, all CREATE_COMPLETE or UPDATE_COMPLETE. 14 DbMigrator stacks all UPDATE_COMPLETE.
+  - [x] All DB migrations ran successfully — 14 DbMigratorStack stacks deployed and completed (catalogue, organizations, inventory, pricing, sales, access-control, media, reporting, marketplace, integration, distribution-portal, customers, extensions, transfer). Each confirmed during P3-S5 deployment.
+  - [x] Lambda functions responding — 112 Lambda functions total, all `LastUpdateStatus=Successful`, all `State=Active`. Gateway health check: `GET /health` → 200 OK (confirmed P3-S5-24).
+  - [x] EventBridge rules → SQS queues (18 consumers) — 19 EventBridge rules on `event-bus-prod`, all ENABLED. 43 SQS queues total. Confirmed in P3-S6.
+  - [x] Internal DNS resolving — 14 CNAME records in private hosted zone `Z04720843DJKNCF1N97H0`. Confirmed in P3-S6.
+  - [x] API Gateway endpoints accessible — `api.production-eu.tickets.mdlbeast.net/health` → 200 OK, `geidea.production-eu.tickets.mdlbeast.net/balance/test/test` → 200 OK. Confirmed in P3-S6.
+  - [x] All secrets have correct values (no PLACEHOLDERs remaining) — Scanned all secrets in eu-central-1: zero PLACEHOLDER values found. Only `prod/data` has one known `me-south-1` reference (Glue bucket — documented in P3-S4, not actionable).
 - **Notes:**
+  - All 8 checklist items passed verification.
+  - 112 Lambda functions across dotnet8 runtime — up from 81 noted in P3-S6 (includes db-migrators, background-jobs, consumers, serverless, and specialty functions).
+  - P3-S6 remaining unchecked items (create event, create tickets, process order, media upload, access control scan, Slack notifications) require Auth0 tokens / manual dashboard testing — deferred to P4-S6 production domain validation.
+  - **Uncommitted changes check:** 3 of 4 repos flagged in Deviations Log were already committed. The remaining one (`ticketing-platform-distribution-portal` — `env-var.prod.json` with `SalesServiceBaseRoute`) was found missing from both Lambda env vars and code — fixed and committed (`19cd521`).
+  - **Finding:** `dp-serverless-prod-function` Lambda is missing `SalesServiceBaseRoute` env var at runtime (manual P3-S5-18 fix was lost). Will be resolved on next CDK redeploy in Phase 4.
+- **Repos (1):** `ticketing-platform-distribution-portal`
 
 ---
 
@@ -1656,14 +1683,14 @@ Tier 3 services (deploy after Tier 2):
 
 ### PM-2: Extension Lambda redeployment
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-27T13:00
+- **Completed:** 2026-03-26T14:13
 - **Substeps:**
-  - [ ] Verify extension-deployer SSM param exists
-  - [ ] Query active extensions from DB
-  - [ ] Trigger redeployment for each extension
-- **Notes:**
+  - [x] Verify extension-deployer SSM param exists
+  - [x] Query active extensions from DB
+  - [x] Trigger redeployment for each extension
+- **Notes:** Redeployed through dashboard by changin/adding version comment in the extension code. Disabled extensions had to be enabled first before updating extension code in order to trigger redeployment. These extensions were disabled again afterwards.
 
 ### PM-3: Configure AWS Backup in eu-central-1
 
