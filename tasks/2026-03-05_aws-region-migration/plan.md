@@ -2413,6 +2413,51 @@ Full ticket lifecycle test via real `production.tickets.mdlbeast.net` domain:
 
 **After 72 hours stable:** Reduce Aurora min ACU back to normal production levels.
 
+### 4.8 Migrate `ticketing-glue-gcp` S3 Bucket
+
+**Context:** The `ticketing-glue-gcp` bucket was missed during the S3 migration — it's not in Terraform, not in the S3 Bucket Naming Strategy table, and only referenced in the automations CDK IAM policies. The AutomaticDataExporter Lambda fails every 11 min because `S3Region` in the secret was updated to `eu-central-1` but the bucket remains in me-south-1.
+
+**Steps:**
+
+1. **Create `ticketing-glue-gcp-eu` bucket in eu-central-1**
+   - Block public access, enable AES256 encryption
+   - No bucket policy to replicate (old bucket has none — BigQuery Data Transfer uses IAM access keys)
+
+2. **Copy data from old bucket**
+   ```bash
+   aws s3 sync s3://ticketing-glue-gcp s3://ticketing-glue-gcp-eu \
+     --source-region me-south-1 --region eu-central-1
+   ```
+
+3. **Update `/prod/automations` secret**
+   - `AUTOMATIC_DATA_EXPORTER_CONFIG`: `S3Bucket` → `ticketing-glue-gcp-eu` (`S3Region` already `eu-central-1`)
+   - `GEIDEA_DATA_EXPORTER_CONFIG`: same change (Geidea stack is commented out in `Program.cs:35` but update for correctness)
+
+4. **CDK code changes (PR → CI/CD deploys)**
+   - `AutomaticDataExporterStack.cs:78-79` — IAM ARN `ticketing-glue-gcp` → `ticketing-glue-gcp-eu`
+   - `GeideaDataExporterStack.cs:78-79` — same
+   - `AutomaticDataExporterStack.cs` — add `Enabled = false` to `ScheduleProps` to disable scheduler
+
+5. **GCP team handoff** — 16 BigQuery Data Transfer configs in project `127814635375` need S3 source URI updated from `s3://ticketing-glue-gcp/...` to `s3://ticketing-glue-gcp-eu/...`
+
+6. **Re-enable scheduler** — after GCP team confirms, remove `Enabled = false` from CDK, merge new PR
+
+**Note:** The base `LambdaS3PolicyStatement` in TP.Tools grants wildcard `s3:PutObject`/`s3:GetObject` on `*`, so the IAM ARN change is for policy correctness, not a functional blocker for S3 writes.
+
+### 4.9 Fix Stale RDS Endpoint in `FINANCE_REPORT_SENDER_CONFIG`
+
+**Context:** The `FinanceReportSender` Lambda fails with `SocketException: Unknown socket error` (DNS NXDOMAIN) when connecting to PostgreSQL. Root cause: the `FINANCE_REPORT_SENDER_CONFIG` in `/prod/automations` has 3 connection strings pointing to the old Aurora cluster ID (`cocuscg4fsup`) which doesn't exist in eu-central-1. The region portion was correctly updated to `eu-central-1` during the bulk secret migration (P2-S7), but the cluster ID changed because Aurora was restored from backup (new cluster = new ID `c0lac6czadei`).
+
+**Steps:**
+
+1. **Update `/prod/automations` secret**
+   - `FINANCE_REPORT_SENDER_CONFIG`: replace `cocuscg4fsup` → `c0lac6czadei` in all 3 connection strings (`ConnectionStringSales`, `ConnectionStringCatalogue`, `ConnectionStringOrganizations`)
+   - No other keys in the secret are affected
+
+2. **Force Lambda cold start** to pick up the new secret value
+
+**No code changes needed.** The Lambda reads the secret at startup via `ServiceProviderBuilder.ReadSecrets()`.
+
 ---
 
 ## Phase 5: Dev+Sandbox Rebuild (Fresh)

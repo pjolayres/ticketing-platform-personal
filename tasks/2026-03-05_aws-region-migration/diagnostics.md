@@ -4,6 +4,8 @@
   - [DIAG-001: All BackgroundJobs Lambdas crash on startup — missing .runtimeconfig.json](#diag-001-all-backgroundjobs-lambdas-crash-on-startup--missing-runtimeconfigjson)
   - [DIAG-002: All Consumer + Automations Lambdas crash on startup — same root cause as DIAG-001](#diag-002-all-consumer--automations-lambdas-crash-on-startup--same-root-cause-as-diag-001)
   - [DIAG-003: Extension Deployer Lambda crashes on startup — ARM64/x86\_64 architecture mismatch](#diag-003-extension-deployer-lambda-crashes-on-startup--arm64x86_64-architecture-mismatch)
+  - [DIAG-004: Mobile scanner CloudFront invalidation fails — `cicd` IAM user missing permission](#diag-004-mobile-scanner-cloudfront-invalidation-fails--cicd-iam-user-missing-permission)
+  - [DIAG-005: CloudFront returns 403 for S3 objects — missing S3 bucket policies for OAC](#diag-005-cloudfront-returns-403-for-s3-objects--missing-s3-bucket-policies-for-oac)
 - [Production Issues](#production-issues)
 - [Resolved Issues](#resolved-issues)
   - [Pre-Production](#pre-production)
@@ -364,7 +366,79 @@ Downstream impact — affected services, config changes, code changes, commits, 
 
 _Issues found during P4-S6 E2E validation against `*.production.tickets.mdlbeast.net` and P4-S7 post-go-live monitoring._
 
-_(No issues logged yet.)_
+### DIAG-004: Mobile scanner CloudFront invalidation fails — `cicd` IAM user missing permission
+
+- **Status:** `RESOLVED`
+- **Severity:** MEDIUM
+- **Reported:** 2026-03-29T23:00
+- **Service(s):** `ticketing-platform-mobile-scanner` CI/CD workflow (`release-build.yml`)
+- **Reporter:** Paulo
+
+**Symptoms:**
+Release build workflow ([run #23657539366](https://github.com/mdlbeasts/ticketing-platform-mobile-scanner/actions/runs/23657539366)) succeeds through build and S3 upload, but fails at the "Invalidate AWS CloudFront cache" step:
+```
+aws: [ERROR]: An error occurred (AccessDenied) when calling the CreateInvalidation operation:
+User: arn:aws:iam::660748123249:user/cicd is not authorized to perform: cloudfront:CreateInvalidation
+on resource: arn:aws:cloudfront::660748123249:distribution/*** because no identity-based policy
+allows the cloudfront:CreateInvalidation action
+```
+
+**Root Cause:**
+The `cicd` IAM user (defined in `ticketing-platform-terraform-prod/prod/user-cicd.tf`) only had the `ci-cd-ecr` policy (ECR permissions). No policy granted `cloudfront:CreateInvalidation`. In the old me-south-1 setup, CloudFront invalidation either wasn't used or was handled by a different user. During the migration, the workflow was updated to use the `cicd` user's credentials but the IAM policy wasn't expanded to match.
+
+**Action Taken:**
+Added a new IAM policy `ci-cd-cloudfront` in `user-cicd.tf` granting `cloudfront:CreateInvalidation` on both CloudFront distributions (`E1NNQYK06MZJSB` for mobile, `E2E0LQF2V6W4U` for s3_prod). Applied via `terraform apply`.
+
+**Consequences:**
+- `cicd` user now has CloudFront invalidation permission
+- Terraform change in `ticketing-platform-terraform-prod/prod/user-cicd.tf` (uncommitted)
+- No code changes to the application
+
+**Resolved:** 2026-03-29T23:25
+
+### DIAG-005: CloudFront returns 403 for S3 objects — missing S3 bucket policies for OAC
+
+- **Status:** `RESOLVED`
+- **Severity:** HIGH
+- **Reported:** 2026-03-30T00:00
+- **Service(s):** CloudFront distributions `E1NNQYK06MZJSB` (`ticketing-app-mobile-eu`) and `E2E0LQF2V6W4U` (`tickets-pdf-download-eu`)
+- **Reporter:** Paulo
+
+**Symptoms:**
+Objects uploaded to S3 via the CI/CD workflow are not accessible through CloudFront. Requesting `https://d36feu62yikku8.cloudfront.net/mdlbeast-scanner/production/...` returns HTTP 403 Forbidden. Direct S3 access via IAM credentials works fine.
+
+**Root Cause:**
+Both CloudFront distributions use OAC (Origin Access Control) to access S3 (`signing_behavior = "always"`, `signing_protocol = "sigv4"`), but neither S3 bucket had a bucket policy granting the CloudFront service principal read access. CloudFront sends signed requests to S3, but S3 rejects them without a matching bucket policy.
+
+The old me-south-1 buckets likely used public ACLs (`--acl public-read` on upload) to make objects readable. The new eu-central-1 buckets were created with `BucketOwnerEnforced` (ACLs disabled, post-April 2023 S3 default), so ACL-based access no longer works. The correct approach with OAC is an S3 bucket policy.
+
+Confirmed by:
+```bash
+aws s3api get-bucket-policy --bucket ticketing-app-mobile-eu  # NoSuchBucketPolicy
+aws s3api get-bucket-policy --bucket tickets-pdf-download-eu   # NoSuchBucketPolicy
+```
+
+**Action Taken:**
+Added `aws_s3_bucket_policy` resources in Terraform for both buckets:
+- `ticketing-platform-terraform-prod/prod/mobile.tf` — policy for `ticketing-app-mobile-eu` granting `s3:GetObject` to `cloudfront.amazonaws.com` scoped to distribution `E1NNQYK06MZJSB`
+- `ticketing-platform-terraform-prod/prod/s3.tf` — policy for `tickets-pdf-download-eu` granting `s3:GetObject` to `cloudfront.amazonaws.com` scoped to distribution `E2E0LQF2V6W4U`
+
+Applied via `terraform apply` (2 resources added, 0 changed, 0 destroyed).
+
+Post-fix verification:
+```
+curl -sI https://d36feu62yikku8.cloudfront.net/mdlbeast-scanner/production/latest.png
+HTTP/2 200
+content-type: image/png
+```
+
+**Consequences:**
+- Both CloudFront distributions now serve S3 objects correctly
+- Terraform changes in `mobile.tf` and `s3.tf` (uncommitted)
+- No application code changes
+- The `ticketing-prod-media-eu` bucket (media service) uses a separate CloudFront-less architecture (API Gateway + Lambda) and is not affected
+
+**Resolved:** 2026-03-30T00:37
 
 ---
 

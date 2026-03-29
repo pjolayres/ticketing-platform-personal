@@ -76,6 +76,8 @@
   - [P4-S5: Merge to production \& deploy frontends](#p4-s5-merge-to-production--deploy-frontends)
   - [P4-S6: End-to-end validation (production domain)](#p4-s6-end-to-end-validation-production-domain)
   - [P4-S7: Post-go-live monitoring (72 hours)](#p4-s7-post-go-live-monitoring-72-hours)
+  - [P4-S8: Migrate ticketing-glue-gcp S3 bucket to eu-central-1](#p4-s8-migrate-ticketing-glue-gcp-s3-bucket-to-eu-central-1)
+  - [P4-S9: Fix stale RDS endpoint in FINANCE\_REPORT\_SENDER\_CONFIG](#p4-s9-fix-stale-rds-endpoint-in-finance_report_sender_config)
 - [Phase 5: Dev+Sandbox Rebuild](#phase-5-devsandbox-rebuild)
   - [P5-S1: Service quota pre-checks (account 307824719505)](#p5-s1-service-quota-pre-checks-account-307824719505)
   - [P5-S2: Foundation](#p5-s2-foundation)
@@ -1666,6 +1668,43 @@ Tier 3 services (deploy after Tier 2):
   - [ ] RDS metrics nominal
   - [ ] After 72h stable: reduce Aurora min ACU to normal
 - **Notes:**
+
+### P4-S8: Migrate `ticketing-glue-gcp` S3 bucket to eu-central-1
+
+- **Status:** `IN PROGRESS` — AWS-side complete, pending GCP team + PR merge
+- **Started:** 2026-03-29
+- **Completed:**
+- **Context:** AutomaticDataExporter Lambda failing every 11 min with `AmazonS3Exception: The me-south-1 location constraint is incompatible for the region specific endpoint`. Root cause: `ticketing-glue-gcp` bucket was missed during migration — not in the S3 Bucket Naming Strategy table, not managed by Terraform, only referenced in automations CDK IAM policies.
+- **Substeps:**
+  - [x] Created `ticketing-glue-gcp-eu` bucket in eu-central-1 (public access blocked, AES256 encryption)
+  - [x] Copied data from `ticketing-glue-gcp` (me-south-1) to `ticketing-glue-gcp-eu` (eu-central-1) via `aws s3 sync`
+  - [x] Updated `/prod/automations` secret: `S3Bucket` → `ticketing-glue-gcp-eu` in both `AUTOMATIC_DATA_EXPORTER_CONFIG` and `GEIDEA_DATA_EXPORTER_CONFIG` (`S3Region` already `eu-central-1`)
+  - [x] Created PR [#40](https://github.com/mdlbeasts/ticketing-platform-automations/pull/40): updates IAM ARNs (`ticketing-glue-gcp` → `ticketing-glue-gcp-eu`) in `AutomaticDataExporterStack.cs` and `GeideaDataExporterStack.cs`, disables scheduler via `Enabled = false`
+  - [ ] Merge PR → CI/CD deploys CDK (IAM updated, scheduler disabled, errors stop)
+  - [ ] GCP team updates 16 BigQuery Data Transfer configs (`s3://ticketing-glue-gcp/...` → `s3://ticketing-glue-gcp-eu/...`) in project `127814635375`
+  - [ ] Re-enable scheduler: remove `Enabled = false` from `AutomaticDataExporterStack.cs`, merge new PR
+- **Deviations:**
+  - Old bucket had no bucket policy — BigQuery Data Transfer uses IAM access keys (not cross-account bucket policy)
+  - GeideaDataExporter CDK stack is commented out in `Program.cs:35` (not deployed to eu-central-1) — updated secret and IAM ARN anyway for correctness
+- **Notes:**
+  - No bucket policy to replicate (confirmed `NoSuchBucketPolicy` on old bucket)
+  - Data is ephemeral (Parquet files overwritten every 11 min), but copied for GCP team testing
+  - 16 BigQuery Transfer config IDs documented in PR description for GCP handoff
+
+### P4-S9: Fix stale RDS endpoint in `FINANCE_REPORT_SENDER_CONFIG`
+
+- **Status:** `DONE`
+- **Started:** 2026-03-29
+- **Completed:** 2026-03-29
+- **Context:** FinanceReportSender Lambda failing with `SocketException: Unknown socket error` (DNS NXDOMAIN). Root cause: `FINANCE_REPORT_SENDER_CONFIG` in `/prod/automations` has 3 connection strings pointing to old Aurora cluster ID `cocuscg4fsup` which doesn't exist in eu-central-1. The bulk secret migration (P2-S7) updated the region to `eu-central-1` but the cluster ID changed because Aurora was restored from backup (new cluster = new ID `c0lac6czadei`).
+- **Substeps:**
+  - [x] Updated `/prod/automations` secret: replaced `cocuscg4fsup` → `c0lac6czadei` in `FINANCE_REPORT_SENDER_CONFIG` (all 3 connection strings: sales, catalogue, organizations)
+  - [x] Forced Lambda cold start via `update-function-configuration` on `automations-finance-report-sender-lambda-prod`
+- **Deviations:** None
+- **Notes:**
+  - `AUTOMATIC_DATA_EXPORTER_CONNECTION_STRING` in the same secret already had the correct cluster ID (`c0lac6czadei`) — only `FINANCE_REPORT_SENDER_CONFIG` was stale
+  - Comprehensive audit of all 24 secrets confirmed no other stale RDS references exist
+  - Also found: gateway `Logging__Elasticsearch__Uri` points to non-existent OpenSearch domain — intentional per migration plan (OpenSearch removed, not recreated; Serilog has no Elasticsearch sink)
 
 ---
 
