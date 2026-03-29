@@ -1,8 +1,13 @@
 # Diagnostics Log: AWS Region Migration E2E Testing
 
 - [Pre-Production (production-eu) Issues](#pre-production-production-eu-issues)
+  - [DIAG-001: All BackgroundJobs Lambdas crash on startup — missing .runtimeconfig.json](#diag-001-all-backgroundjobs-lambdas-crash-on-startup--missing-runtimeconfigjson)
+  - [DIAG-002: All Consumer + Automations Lambdas crash on startup — same root cause as DIAG-001](#diag-002-all-consumer--automations-lambdas-crash-on-startup--same-root-cause-as-diag-001)
+  - [DIAG-003: Extension Deployer Lambda crashes on startup — ARM64/x86\_64 architecture mismatch](#diag-003-extension-deployer-lambda-crashes-on-startup--arm64x86_64-architecture-mismatch)
 - [Production Issues](#production-issues)
 - [Resolved Issues](#resolved-issues)
+  - [Pre-Production](#pre-production)
+  - [Production](#production)
 
 > **How to use this log:**
 >

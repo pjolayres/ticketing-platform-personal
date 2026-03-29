@@ -134,13 +134,13 @@
 | `CERT_ARN_GATEWAY_TEMP` | `arn:aws:acm:eu-central-1:660748123249:certificate/914c47a3-f0df-4e5c-a406-747f62fb2228` | P3-S2       | P3-S3               |
 | `CERT_ARN_GEIDEA_TEMP`  | `arn:aws:acm:eu-central-1:660748123249:certificate/773c5a63-304a-476c-95dd-877065f91581` | P3-S2       | P3-S3               |
 | `CERT_ARN_ECWID_TEMP`   | `arn:aws:acm:eu-central-1:660748123249:certificate/75e4cc24-20cc-491d-b87c-20ae2647f2b9` | P3-S2       | P3-S3               |
-| `CERT_ARN_GATEWAY_PROD` |                                                                                          | P4-S2       | P4-S3               |
-| `CERT_ARN_GEIDEA_PROD`  |                                                                                          | P4-S2       | P4-S3               |
-| `CERT_ARN_ECWID_PROD`   |                                                                                          | P4-S2       | P4-S3               |
+| `CERT_ARN_GATEWAY_PROD` | `arn:aws:acm:eu-central-1:660748123249:certificate/fd763671-01f5-4957-82d8-e321800b127d` | P4-S2       | P4-S3               |
+| `CERT_ARN_GEIDEA_PROD`  | `arn:aws:acm:eu-central-1:660748123249:certificate/947916fe-e54c-4f89-b860-64355a8c685e` | P4-S2       | P4-S3               |
+| `CERT_ARN_ECWID_PROD`   | `arn:aws:acm:eu-central-1:660748123249:certificate/0bf7cca4-fd68-4786-9bbe-990758f805b1` | P4-S2       | P4-S3               |
 | `NEW_AWS_KEY`           | `AKIAZTV5IHRY3JAPWUFD`                                                                   | P3-S4       | P3-S4, P4-S4        |
 | `NEW_AWS_SECRET`        | _(redacted — fetch from any `/prod/*` secret's `AWS_ACCESS_SECRET` key)_                 | P3-S4       | P3-S4, P4-S4        |
 | `NUGET_VERSION_1`       | `1.0.1300`                                                                               | P1-T19      | P1-T19              |
-| `NUGET_VERSION_2`       |                                                                                          | P4-S1.1     | P4-S1.1             |
+| `NUGET_VERSION_2`       | `1.0.1301`                                                                               | P4-S1.1     | P4-S1.1             |
 
 ---
 
@@ -183,6 +183,11 @@
 | P3-S5-20 | Three stale DefaultPolicy inline policies survived P3-S5-02 bulk cleanup on access-control roles; Lambda uses `accesscontrol-` prefix (no hyphen), not `access-control-` | None — policies recreated by CDK |
 | P3-S5-14 | MediaStorageStack failed twice: (1) IAM user `imgix-prod` already exists (global), (2) inline policy `media-s3-imgix-user-policy-prod` already on user. S3 bucket orphaned on rollback. Fixed by importing user + bucket, deleting stale policy. | None — media is only service with IAM user in CDK |
 | P3-S5-18 | Health check failed — `SalesServiceBaseRoute` env var missing (was in K8s configmap, not in Lambda env-var.prod.json). Added to Lambda config + `env-var.prod.json`. DNS uses `dp` prefix not `distribution-portal`. | `ticketing-platform-distribution-portal` has uncommitted code change. Tier 3 services (access-control, gateway, transfer) may need same configmap→env-var migration |
+| P4-S1.1  | Bumped 25 repos instead of 18 — included 7 additional repos (loyalty, csv-generator, pdf-generator, automations, extension-deployer, extension-executor, extension-log-processor) | None — these repos will already be on `1.0.1301` when merged in P4-S5 |
+| P4-S3    | Stale me-south-1 A records in `production.tickets.mdlbeast.net` zone blocked Gateway/Geidea/Ecwid deploys; deleted 3 records, retried successfully | None — remaining stale records (marketingfeed, xp-badges, old infra) for post-migration cleanup |
+| P4-S3    | Stack names differed from plan: `TP-GatewayStack-prod`, `TP-ApiStack-geidea-prod`, `TP-ServerlessBackendStack-distribution-portal-prod` | None |
+| P4-S3    | Old `internal.production-eu` zone orphaned — CloudFormation couldn't delete (non-empty, 14 stale CNAMEs) | PM-1 must also clean up orphaned zone `Z04720843DJKNCF1N97H0` |
+| P4-S4    | Plan only listed org-level + few repo-specific secrets; 13 repos had environment-level secrets shadowing org values. Updated ~48 secrets across env/repo/mobile-scanner levels. Storybook variables skipped (no infra in eu-central-1). | Dev/sandbox env secrets still me-south-1 — update in P5. Storybook infra needs creation (post-migration). |
 
 ---
 
@@ -1510,75 +1515,114 @@ Tier 3 services (deploy after Tier 2):
 
 ### P4-S1: Revert temporary domain mapping in CDK
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-27T14:00
+- **Completed:** 2026-03-27T14:15
+- **Repos (5):** `ticketing-platform-tools`, `ticketing-platform-gateway`, `ticketing-platform-infrastructure`, `ticketing-platform-geidea`, `ecwid-integration`
 - **Substeps:**
-  - [ ] Revert `ServerlessApiStackHelper.cs:47`
-  - [ ] Revert `GatewayStack.cs:32` and `:107`
-  - [ ] Revert `InternalHostedZoneStack.cs:15`
-  - [ ] Revert `InternalCertificateStack.cs:15`
-  - [ ] Revert `Geidea ApiStack.cs:32`
-  - [ ] Revert `Ecwid ApiStack.cs:32`
-- **Notes:**
+  - [x] Revert `ServerlessApiStackHelper.cs:47`
+  - [x] Revert `GatewayStack.cs:32` and `:107`
+  - [x] Revert `InternalHostedZoneStack.cs:15`
+  - [x] Revert `InternalCertificateStack.cs:15`
+  - [x] Revert `Geidea ApiStack.cs:32`
+  - [x] Revert `Ecwid ApiStack.cs:32`
+- **Notes:** All 7 occurrences reverted from `"production-eu"` back to `"production"` across 5 repos. Comprehensive audit confirmed no other `production-eu` references in deployable source code. 18 `cdk.context.json` files (gitignored) still contain cached `production-eu` zone lookups — these should be deleted before P4-S3 CDK deploys so CDK fetches the correct `production` zone. `ticketing-platform-dashboard/.env.local` (gitignored) also has `production-eu` URLs — local dev only, no action needed.
 
 ### P4-S1.1: Publish updated ticketing-platform-tools NuGet package
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-27T15:00
+- **Completed:** 2026-03-27T15:30
+- **Repos (25):** `ticketing-platform-infrastructure`, `ticketing-platform-gateway`, `ticketing-platform-geidea`, `ecwid-integration`, `ticketing-platform-catalogue`, `ticketing-platform-organizations`, `ticketing-platform-inventory`, `ticketing-platform-pricing`, `ticketing-platform-sales`, `ticketing-platform-access-control`, `ticketing-platform-media`, `ticketing-platform-reporting-api`, `ticketing-platform-transfer`, `ticketing-platform-marketplace-service`, `ticketing-platform-integration`, `ticketing-platform-distribution-portal`, `ticketing-platform-extension-api`, `ticketing-platform-customer-service`, `ticketing-platform-loyalty`, `ticketing-platform-csv-generator`, `ticketing-platform-pdf-generator`, `ticketing-platform-automations`, `ticketing-platform-extension-deployer`, `ticketing-platform-extension-executor`, `ticketing-platform-extension-log-processor`
 - **Substeps:**
-  - [ ] Merge to master, push to trigger nuget.yml
-  - [ ] Wait for workflow — record version
-  - [ ] Bump TP.Tools.\* in 18 service repos being redeployed
-  - [ ] Commit version bumps
-  - [ ] Verify build
+  - [x] Create PR to master (PR #1273), user merged to trigger nuget.yml
+  - [x] Wait for workflow — version: **1.0.1301**
+  - [x] Bump TP.Tools.\* in 25 service repos (18 planned + 7 additional)
+  - [x] Commit version bumps
+  - [x] Verify build (gateway CDK builds clean)
 - **Outputs:**
-  - `NUGET_VERSION_2`:
-- **Notes:**
+  - `NUGET_VERSION_2`: `1.0.1301`
+- **Deviations:**
+  - **DEVIATION:** Bumped 25 repos instead of 18 — included 7 additional repos (loyalty, csv-generator, pdf-generator, automations, extension-deployer, extension-executor, extension-log-processor) that the plan deferred to P4-S5 merge.
+  - **Reason:** User requested all repos be on the same version to avoid mixed state.
+  - **Actions taken:** Updated all `.csproj` files referencing `TP.Tools.*` from `1.0.1300` to `1.0.1301` across all 25 repos; 117 files total.
+  - **Downstream impact:** None — these 7 repos will already be on `1.0.1301` when merged in P4-S5.
+- **Notes:** Published via PR #1273 (not direct push to master, per instruction). Version `1.0.1301` confirmed by user.
 
 ### P4-S2: Create ACM certificates for real domain
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-27T16:00
+- **Completed:** 2026-03-27T16:30
 - **Substeps:**
-  - [ ] Request + validate cert for `api.production.tickets.mdlbeast.net` → SSM `/production/tp/DomainCertificateArn`
-  - [ ] Request + validate cert for `geidea.production.tickets.mdlbeast.net` → SSM `/prod/tp/geidea/DomainCertificateArn`
-  - [ ] Request + validate cert for `ecwid.production.tickets.mdlbeast.net` → SSM `/prod/tp/ecwid/DomainCertificateArn`
-  - [ ] Verify all 3 certs ISSUED
+  - [x] Request + validate cert for `api.production.tickets.mdlbeast.net` → SSM `/production/tp/DomainCertificateArn`
+  - [x] Request + validate cert for `geidea.production.tickets.mdlbeast.net` → SSM `/prod/tp/geidea/DomainCertificateArn`
+  - [x] Request + validate cert for `ecwid.production.tickets.mdlbeast.net` → SSM `/prod/tp/ecwid/DomainCertificateArn`
+  - [x] Verify all 3 certs ISSUED
 - **Outputs:**
-  - `CERT_ARN_GATEWAY_PROD`:
-  - `CERT_ARN_GEIDEA_PROD`:
-  - `CERT_ARN_ECWID_PROD`:
-- **Notes:**
+  - `CERT_ARN_GATEWAY_PROD`: `arn:aws:acm:eu-central-1:660748123249:certificate/fd763671-01f5-4957-82d8-e321800b127d`
+  - `CERT_ARN_GEIDEA_PROD`: `arn:aws:acm:eu-central-1:660748123249:certificate/947916fe-e54c-4f89-b860-64355a8c685e`
+  - `CERT_ARN_ECWID_PROD`: `arn:aws:acm:eu-central-1:660748123249:certificate/0bf7cca4-fd68-4786-9bbe-990758f805b1`
+- **Notes:** All 3 certs requested, DNS-validated via Route53 zone Z095340838T2KOPA8X742 (production.tickets.mdlbeast.net), and ARNs stored in SSM. Gateway SSM was Version 1 (new path `/production/tp/`). Geidea and Ecwid SSM were Version 2 (overwriting temp cert ARNs). No deviations.
 
 ### P4-S3: Redeploy public-facing stacks
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-27T17:00
+- **Completed:** 2026-03-27T18:15
 - **Substeps:**
-  - [ ] Deploy `TP-InternalHostedZoneStack-prod`
-  - [ ] Deploy `TP-InternalCertificateStack-prod`
-  - [ ] Deploy `GatewayStack`
-  - [ ] Deploy `TP-Geidea-ApiStack-prod`
-  - [ ] Deploy `TP-ApiStack-ecwid-prod`
-  - [ ] Parallel redeploy all 14 ServerlessBackendStack stacks (minimize CNAME gap)
-  - [ ] Verify internal DNS resolution
+  - [x] Deploy `TP-InternalHostedZoneStack-prod` — UPDATE_COMPLETE (932s). New zone `Z05628001T92EME2ZM0Z6`; old `production-eu` zone orphaned (non-empty)
+  - [x] Deploy `TP-InternalCertificateStack-prod` — no changes (already correct)
+  - [x] Deploy `TP-GatewayStack-prod` — UPDATE_COMPLETE. `api.production.tickets.mdlbeast.net` → `d-5s7rkfm7ai.execute-api.eu-central-1.amazonaws.com`
+  - [x] Deploy `TP-ApiStack-geidea-prod` — UPDATE_COMPLETE. `geidea.production.tickets.mdlbeast.net` → eu-central-1
+  - [x] Deploy `TP-ApiStack-ecwid-prod` — UPDATE_COMPLETE. `ecwid.production.tickets.mdlbeast.net` → eu-central-1
+  - [x] Parallel redeploy all 14 ServerlessBackendStack stacks — all 14 UPDATE_COMPLETE. 14 CNAMEs in new internal zone `Z05628001T92EME2ZM0Z6`
+  - [x] Verify internal DNS resolution — 14 CNAMEs confirmed. Gateway health: 200 OK. Geidea: 200 OK.
+- **CNAME gap duration:** ~25 min (InternalHostedZoneStack completed ~16:21, last ServerlessBackendStack completed ~17:46 including dp retry)
+- **Deviations:**
+  - **DEVIATION:** Stale me-south-1 A records blocked Gateway, Geidea, and Ecwid deploys
+  - **Reason:** Zone `Z095340838T2KOPA8X742` had A records for `api.`, `geidea.`, `ecwid.production.tickets.mdlbeast.net` pointing to me-south-1 API Gateway endpoints (leftover from original production). CDK rejected with `Tried to create resource record set but it already exists`.
+  - **Actions taken:** Deleted 3 stale me-south-1 A records via Route53 batch DELETE, retried CDK — all succeeded.
+  - **Downstream impact:** None. Remaining stale records (marketingfeed, xp-badges, k8s, managment, omada, openvpn, runners) can be cleaned up post-migration.
+  - **DEVIATION:** Stack names differed from plan: `TP-GatewayStack-prod` (not `GatewayStack`), `TP-ApiStack-geidea-prod` (not `TP-Geidea-ApiStack-prod`), `TP-ServerlessBackendStack-distribution-portal-prod` (not `dp-prod`)
+  - **Reason:** Plan used shorthand/incorrect stack names
+  - **Actions taken:** Ran `cdk list` to discover correct names, retried
+  - **Downstream impact:** None
+  - **DEVIATION:** Old `internal.production-eu.tickets.mdlbeast.net` zone not deleted (HostedZoneNotEmptyException)
+  - **Reason:** Zone still has 14 CNAME records from Phase 3. CloudFormation retried 3× and gave up.
+  - **Actions taken:** Zone left as orphan `Z04720843DJKNCF1N97H0`. Stack UPDATE_COMPLETE despite cleanup failure.
+  - **Downstream impact:** Orphaned zone — clean up in PM-1 (delete CNAMEs, then delete zone)
 - **Notes:**
-- **CNAME gap duration (measure):**
+  - Pre-deployment: deleted 23 stale `cdk.context.json` files (cached `production-eu` lookups)
+  - All Lambda code packaged via `dotnet lambda package -c Release` (per CI/CD and DIAG-001/002)
+  - Old me-south-1 private zone `Z03797551A46FREHEV59B` (`internal.production.tickets.mdlbeast.net`) still exists — different VPC, no conflict
+  - Stale public records remaining: `marketingfeed`, `xp-badges` (me-south-1), `k8s`, `managment`, `omada`, `openvpn`, `runner-1a`, `runner-1b` (old infra)
 
 ### P4-S4: Update GitHub secrets & variables
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-27T10:22
+- **Completed:** 2026-03-27T10:25
 - **Substeps:**
-  - [ ] Set `AWS_DEFAULT_REGION=eu-central-1` across all repos
-  - [ ] Set additional region secrets on specific repos
-  - [ ] Update Dashboard GitHub variables (Storybook bucket, CloudFront ID)
+  - [x] Set `AWS_DEFAULT_REGION=eu-central-1` across all repos (org-level — done manually by user)
+  - [x] Set additional region secrets on specific repos (`AWS_DEFAULT_REGION_PROD` on terraform-dev, configmap-prod; `TP_AWS_DEFAULT_REGION_PROD` on configmap-prod)
+  - [x] Update environment-level region secrets (`AWS_DEFAULT_REGION`, `CDK_DEFAULT_REGION`) on prod environments for 10 repos (19 secrets)
+  - [x] Update environment-level credential secrets (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) on prod environments for 9 repos (18 secrets)
+  - [x] Update repo-level credential secrets on distribution-portal (4 secrets) and terraform-prod (2 secrets)
+  - [x] Update mobile-scanner production environment (credentials + `CLOUDFRONT`, `CLOUDFRONT_DISTRIBUTION_ID`, `S3`)
+  - [ ] Update Dashboard GitHub variables (Storybook bucket, CloudFront ID) — **SKIPPED:** no storybook S3 bucket or CloudFront distribution exists in eu-central-1 yet
 - **Notes:**
+  - User manually updated organization-level secrets before this step
+  - User manually deleted repo-level `AWS_DEFAULT_REGION` overrides from `reporting-api` and `terraform-prod`
+  - 13 repos had environment-based secrets that shadow org-level — only prod environments updated (dev/sandbox deferred to P5)
+  - `CDK_DEFAULT_REGION` set at org level by user; also updated in all prod environments
+  - **~48 total secret updates** across environment, repo, and mobile-scanner levels
+- **Deviations:**
+
+  **DEVIATION:** Plan only listed `AWS_DEFAULT_REGION` across repos + a few repo-specific secrets. Actual scope was much larger due to environment-level secrets shadowing org secrets.
+  **Reason:** 13 repos use GitHub environment-based secrets (highest priority) which override org-level values. Plan did not account for environment-level secret hierarchy.
+  **Actions taken:** Updated `AWS_DEFAULT_REGION`, `CDK_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY` on prod environments for all affected repos. Also updated mobile-scanner production environment with new CloudFront/S3 values.
+  **Downstream impact:** Dev/sandbox environment secrets still point to me-south-1 — must be updated in Phase 5. Storybook infrastructure (S3 bucket + CloudFront) needs to be created before dashboard variables can be set (post-migration task).
 
 ### P4-S5: Merge to production & deploy frontends
 
