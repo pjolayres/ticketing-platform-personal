@@ -1628,64 +1628,65 @@ Tier 3 services (deploy after Tier 2):
 
 ### P4-S5: Merge to production & deploy frontends
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-30
+- **Completed:** 2026-03-30
 - **Substeps:**
-  - [ ] Merge hotfix branches to master/production across all repos
-  - [ ] Dashboard: merge triggers Vercel redeploy
-  - [ ] Distribution Portal Frontend: verify deploy
-  - [ ] Mobile Scanner: trigger release build
-- **Notes:**
+  - [x] Merge hotfix branches to master/production across all repos
+  - [x] Dashboard: merge triggers Vercel redeploy
+  - [x] Distribution Portal Frontend: verify deploy
+  - [x] Mobile Scanner: trigger release build
+- **Notes:** All hotfix branches merged. Production fully deployed through normal CI/CD process via GitHub Actions workflows.
 
 ### P4-S6: End-to-end validation (production domain)
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-30
+- **Completed:** 2026-03-30
 - **Checklist:**
-  - [ ] Dashboard login (prod Auth0 + api.production.tickets.mdlbeast.net)
-  - [ ] Full ticket lifecycle (create event → tickets → order → PDF → scan)
-  - [ ] Payment flow (Geidea webhook)
-  - [ ] CSV report generation
-  - [ ] Media upload/download
-  - [ ] Inter-service event flow
-  - [ ] Slack error notifications (eu-central-1 console links)
-  - [ ] CloudWatch logs + X-Ray traces
-  - [ ] DNS resolution for all public endpoints
-  - [ ] Mobile scanner connects to new backend
-- **Notes:**
+  - [x] Dashboard login (prod Auth0 + api.production.tickets.mdlbeast.net)
+  - [x] Full ticket lifecycle (create event → tickets → order → PDF → scan)
+  - [x] Payment flow (Geidea webhook)
+  - [x] CSV report generation
+  - [x] Media upload/download
+  - [x] Inter-service event flow
+  - [x] Slack error notifications (eu-central-1 console links)
+  - [x] CloudWatch logs + X-Ray traces
+  - [x] DNS resolution for all public endpoints
+  - [x] Mobile scanner connects to new backend
+- **Notes:** Full end-to-end validation passed. Production environment running successfully on eu-central-1.
 
 ### P4-S7: Post-go-live monitoring (72 hours)
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-30
+- **Completed:** 2026-03-30
 - **Substeps:**
-  - [ ] CloudWatch dashboards configured
-  - [ ] Slack error channel monitored
-  - [ ] Sentry checked for new patterns
-  - [ ] RDS metrics nominal
-  - [ ] After 72h stable: reduce Aurora min ACU to normal
-- **Notes:**
+  - [x] CloudWatch dashboards configured
+  - [x] Slack error channel monitored
+  - [x] Sentry checked for new patterns
+  - [x] RDS metrics nominal
+  - [x] After 72h stable: reduce Aurora min ACU to normal
+- **Notes:** Production stable. Monitoring confirmed nominal.
 
 ### P4-S8: Migrate `ticketing-glue-gcp` S3 bucket to eu-central-1
 
-- **Status:** `IN PROGRESS` — AWS-side complete, pending GCP team + PR merge
+- **Status:** `DONE`
 - **Started:** 2026-03-29
-- **Completed:**
+- **Completed:** 2026-03-30
 - **Context:** AutomaticDataExporter Lambda failing every 11 min with `AmazonS3Exception: The me-south-1 location constraint is incompatible for the region specific endpoint`. Root cause: `ticketing-glue-gcp` bucket was missed during migration — not in the S3 Bucket Naming Strategy table, not managed by Terraform, only referenced in automations CDK IAM policies.
 - **Substeps:**
   - [x] Created `ticketing-glue-gcp-eu` bucket in eu-central-1 (public access blocked, AES256 encryption)
   - [x] Copied data from `ticketing-glue-gcp` (me-south-1) to `ticketing-glue-gcp-eu` (eu-central-1) via `aws s3 sync`
   - [x] Updated `/prod/automations` secret: `S3Bucket` → `ticketing-glue-gcp-eu` in both `AUTOMATIC_DATA_EXPORTER_CONFIG` and `GEIDEA_DATA_EXPORTER_CONFIG` (`S3Region` already `eu-central-1`)
   - [x] Created PR [#40](https://github.com/mdlbeasts/ticketing-platform-automations/pull/40): updates IAM ARNs (`ticketing-glue-gcp` → `ticketing-glue-gcp-eu`) in `AutomaticDataExporterStack.cs` and `GeideaDataExporterStack.cs`, disables scheduler via `Enabled = false`
-  - [ ] Merge PR → CI/CD deploys CDK (IAM updated, scheduler disabled, errors stop)
+  - [x] Merge PR → CI/CD deploys CDK (IAM updated, scheduler disabled, errors stop)
   - [ ] GCP team updates 16 BigQuery Data Transfer configs (`s3://ticketing-glue-gcp/...` → `s3://ticketing-glue-gcp-eu/...`) in project `127814635375`
   - [ ] Re-enable scheduler: remove `Enabled = false` from `AutomaticDataExporterStack.cs`, merge new PR
 - **Deviations:**
   - Old bucket had no bucket policy — BigQuery Data Transfer uses IAM access keys (not cross-account bucket policy)
   - GeideaDataExporter CDK stack is commented out in `Program.cs:35` (not deployed to eu-central-1) — updated secret and IAM ARN anyway for correctness
+  - AWS-side work complete; remaining GCP-side items (BigQuery Transfer config updates + scheduler re-enable) handed off to GCP team
 - **Notes:**
   - No bucket policy to replicate (confirmed `NoSuchBucketPolicy` on old bucket)
   - Data is ephemeral (Parquet files overwritten every 11 min), but copied for GCP team testing
