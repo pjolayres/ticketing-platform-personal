@@ -190,6 +190,7 @@
 | P4-S3    | Stack names differed from plan: `TP-GatewayStack-prod`, `TP-ApiStack-geidea-prod`, `TP-ServerlessBackendStack-distribution-portal-prod` | None |
 | P4-S3    | Old `internal.production-eu` zone orphaned — CloudFormation couldn't delete (non-empty, 14 stale CNAMEs) | PM-1 must also clean up orphaned zone `Z04720843DJKNCF1N97H0` |
 | P4-S4    | Plan only listed org-level + few repo-specific secrets; 13 repos had environment-level secrets shadowing org values. Updated ~48 secrets across env/repo/mobile-scanner levels. Storybook variables skipped (no infra in eu-central-1). | Dev/sandbox env secrets still me-south-1 — update in P5. Storybook infra needs creation (post-migration). |
+| P5-S2    | Skipped `user-cicd.tf` substep — file doesn't exist in terraform-dev (no CICD IAM user). `cloudfront:CreateInvalidation` already in `mobile.tf`. | None |
 
 ---
 
@@ -1716,29 +1717,36 @@ Tier 3 services (deploy after Tier 2):
 
 ### P5-S1: Pre-flight — Fix Terraform S3 bucket names
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-30T
+- **Completed:** 2026-03-30T
+- **Repos (1):** `ticketing-platform-terraform-dev`
 - **Substeps:**
-  - [ ] Rename S3 buckets to `-eu` suffix in `s3.tf`, `variables.tf`, `mobile.tf`
-  - [ ] Update IAM policy ARNs referencing bucket names
-  - [ ] Commit on `hotfix/region-migration-eu-central-1`
-- **Notes:**
+  - [x] Rename S3 buckets to `-eu` suffix in `s3.tf`, `variables.tf`, `mobile.tf`
+  - [x] Update IAM policy ARNs referencing bucket names
+  - [x] Commit on `hotfix/region-migration-eu-central-1`
+- **Notes:** Renamed 7 bucket definitions across 3 files. Added backward-compat ARNs for old me-south-1 bucket names to all 6 IAM policy documents (5 in `s3.tf`, 1 in `mobile.tf`), matching the prod pattern. Also updated CloudFront comment in `mobile.tf` to match new bucket name.
 
 ### P5-S2: Pre-flight — Fix Terraform VPC, SG, CloudFront, RDS
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-30T
+- **Completed:** 2026-03-31T
+- **Repos (1):** `ticketing-platform-terraform-dev`
 - **Substeps:**
-  - [ ] Add `enable_dns_hostnames`/`enable_dns_support` to `vpc.tf`
-  - [ ] Add VPC CIDR port 5432 ingress to `rds.tf`
-  - [ ] Add CloudFront OAC bucket policies to `s3.tf`
-  - [ ] Add `cloudfront:CreateInvalidation` to `user-cicd.tf`
-  - [ ] Add `*.tfstate` to `.gitignore`
-  - [ ] Uncomment RDS cluster/instance blocks in `rds.tf` (no serverless scaling in TF)
-  - [ ] Commit on `hotfix/region-migration-eu-central-1`
-- **Notes:**
+  - [x] Add `enable_dns_hostnames`/`enable_dns_support` to `vpc.tf`
+  - [x] Add VPC CIDR port 5432 ingress to `rds.tf`
+  - [x] Add CloudFront OAC bucket policies to `s3.tf` and `mobile.tf`
+  - [x] ~~Add `cloudfront:CreateInvalidation` to `user-cicd.tf`~~ — SKIPPED (see deviation)
+  - [x] Add `*.tfstate` to `dev/.gitignore`
+  - [x] Uncomment RDS cluster/instance blocks in `rds.tf` (no serverless scaling in TF)
+  - [x] Commit on `hotfix/region-migration-eu-central-1`
+- **Deviations:**
+  **DEVIATION:** Skipped `user-cicd.tf` substep — file doesn't exist in terraform-dev
+  **Reason:** terraform-dev has no CICD IAM user defined (unlike terraform-prod). The `cloudfront:CreateInvalidation` permission is already present in `mobile.tf` for the mobile IAM user.
+  **Actions taken:** Skipped the substep; no file created.
+  **Downstream impact:** None — dev/sandbox CI/CD uses org-level GitHub secrets with IAM keys, not a Terraform-managed CICD user. If a CICD user is later needed, the policy can be added then.
+- **Notes:** Added OAC bucket policies for both `pdf-tickets-sandbox` (in `s3.tf`) and `ticketing-app-mobile` (in `mobile.tf`). No dev pdf CloudFront distribution exists, so no bucket policy needed for `pdf-tickets-dev`.
 
 ### P5-S3: Terraform foundation
 
