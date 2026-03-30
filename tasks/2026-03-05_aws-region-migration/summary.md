@@ -39,7 +39,7 @@ The MDLBEAST Ticketing Platform is migrating from AWS **me-south-1** (Bahrain) t
 | **Phase 1** | Code preparation (no infra changes) | **DONE** | 2026-03-25 |
 | **Phase 2** | Production foundation & data restore | **DONE** | 2026-03-25 to 2026-03-26 |
 | **Phase 3** | Production services under temporary domain | **DONE** | 2026-03-26 to 2026-03-27 |
-| **Phase 4** | DNS cutover to production domain | **IN PROGRESS** (next: P4-S5 branch merges) | 2026-03-27 to present |
+| **Phase 4** | DNS cutover to production domain | **DONE** | 2026-03-27 to 2026-03-30 |
 | **Phase 5** | Dev+Sandbox rebuild (fresh) | PENDING | — |
 | **Post-Migration** | Cleanup, backup config, monitoring | PARTIAL (PM-2 done) | — |
 
@@ -165,11 +165,11 @@ All steps completed 2026-03-26 to 2026-03-27. P3-VERIFY passed 2026-03-27. → e
 
 ---
 
-## Phase 4: DNS Cutover to Production Domain — IN PROGRESS
+## Phase 4: DNS Cutover to Production Domain — COMPLETED
 
-→ plan.md §Phase 4 for planned steps; execution.md §P4-S1 through §P4-S8 for results
+All steps completed 2026-03-27 to 2026-03-30. → plan.md §Phase 4 for planned steps; execution.md §P4-S1 through §P4-S9 for results
 
-### Completed Steps
+### Steps
 
 **P4-S1: Revert Domain Mapping** — DONE (2026-03-27). Reverted 7 occurrences of `"production-eu"` → `"production"` across 5 repos (ticketing-platform-tools, gateway, infrastructure, geidea, ecwid-integration). Deleted 18 `cdk.context.json` files to clear cached lookups. → execution.md §P4-S1
 
@@ -193,33 +193,26 @@ All steps completed 2026-03-26 to 2026-03-27. P3-VERIFY passed 2026-03-27. → e
 - **Skipped:** Dashboard Storybook variables (S3 bucket + CloudFront don't exist yet in eu-central-1)
 - **Deferred:** Dev/sandbox environment secrets still point to me-south-1 (Phase 5)
 
-### Current Step: P4-S5 Merge to Production & Deploy Frontends — PENDING
+**P4-S5: Merge to Production & Deploy Frontends** — DONE (2026-03-30). All hotfix branches merged to `master`/`production` across all repos. Dashboard redeployed via Vercel. Distribution Portal Frontend verified. Mobile Scanner release build triggered. All CI/CD workflows executed via GitHub Actions. → execution.md §P4-S5
 
-→ plan.md §4.5; execution.md §P4-S5
+**P4-S6: E2E Validation (Production Domain)** — DONE (2026-03-30). Full ticket lifecycle validated: dashboard login (prod Auth0), create event → tickets → order → PDF → scan, payment flow (Geidea webhook), CSV reports, media upload/download, inter-service event flow, Slack error notifications (eu-central-1 console links), CloudWatch logs + X-Ray traces, DNS resolution for all public endpoints, mobile scanner connectivity. → execution.md §P4-S6
 
-- [ ] Merge `hotfix/region-migration-eu-central-1` → `master`/`production` across all repos
-- [ ] Dashboard: merge triggers Vercel redeploy
-- [ ] Distribution Portal Frontend: verify deploy
-- [ ] Mobile Scanner: trigger release build
+**P4-S7: Post-Go-Live Monitoring** — DONE (2026-03-30). CloudWatch dashboards configured, Slack error channel monitored, Sentry checked for new patterns, RDS metrics nominal. Production stable. → execution.md §P4-S7
 
-### Remaining Steps
-
-**P4-S6: E2E Validation (Production Domain)** — PENDING. Full ticket lifecycle test including dashboard login, create event → tickets → order → PDF → scan, payment flow, CSV reports, media operations, Slack notifications, CloudWatch/X-Ray, DNS resolution, mobile scanner. → plan.md §4.6; execution.md §P4-S6
-
-**P4-S7: Post-Go-Live Monitoring (72 hours)** — PENDING. CloudWatch, Slack, Sentry, RDS metrics. After 72h stable: reduce Aurora min ACU. → plan.md §4.7; execution.md §P4-S7
-
-**P4-S8: Migrate `ticketing-glue-gcp` S3 Bucket** — IN PROGRESS (started 2026-03-29). AWS-side complete: `ticketing-glue-gcp-eu` bucket created, data synced, `/prod/automations` secret updated. PR [#40](https://github.com/mdlbeasts/ticketing-platform-automations/pull/40) created (IAM ARN updates + scheduler disabled). → plan.md §4.8; execution.md §P4-S8
-- [ ] Merge PR → CI/CD deploys CDK (errors stop)
-- [ ] GCP team updates 16 BigQuery Data Transfer configs (`s3://ticketing-glue-gcp/...` → `s3://ticketing-glue-gcp-eu/...`)
-- [ ] Re-enable scheduler: remove `Enabled = false`, merge new PR
+**P4-S8: Migrate `ticketing-glue-gcp` S3 Bucket** — DONE (2026-03-29 to 2026-03-30, AWS-side complete). `ticketing-glue-gcp-eu` bucket created, data synced, `/prod/automations` secret updated. PR [#40](https://github.com/mdlbeasts/ticketing-platform-automations/pull/40) merged — CDK deployed with IAM ARN updates and scheduler disabled. → plan.md §4.8; execution.md §P4-S8
+- [x] Merge PR → CI/CD deploys CDK (IAM updated, scheduler disabled, errors stop)
+- [ ] GCP team updates 16 BigQuery Data Transfer configs (`s3://ticketing-glue-gcp/...` → `s3://ticketing-glue-gcp-eu/...`) in project `127814635375`
+- [ ] Re-enable scheduler: remove `Enabled = false` from `AutomaticDataExporterStack.cs`, merge new PR
 
 **P4-S9: Fix Stale RDS Endpoint in `FINANCE_REPORT_SENDER_CONFIG`** — DONE (2026-03-29). FinanceReportSender Lambda was failing with `SocketException` (DNS NXDOMAIN) because `FINANCE_REPORT_SENDER_CONFIG` in `/prod/automations` had 3 connection strings pointing to old Aurora cluster ID `cocuscg4fsup` (doesn't exist in eu-central-1). The bulk secret migration (P3-S4) updated the region but the cluster ID changed because Aurora was restored from backup (new cluster = `c0lac6czadei`). Fixed by replacing the cluster ID in all 3 connection strings (sales, catalogue, organizations) and forcing a Lambda cold start. Comprehensive audit confirmed no other stale RDS references across all 24 secrets. → plan.md §4.9; execution.md §P4-S9
 
-### Critical Notes for Remaining Phase 4
+### Key Deviations (Phase 4) → execution.md §Deviations Log
 
-- SSM params to update at cutover: `ACCESS_CONTROL_SERVICE_URL` (CSV generator) and `ExtensionApiUrl` (extensions) from `production-eu` → `production`. → plan.md §4.3
-- Dashboard needs CloudFront URL updates (new distribution IDs: `E2E0LQF2V6W4U`, `E1NNQYK06MZJSB`)
-- Old CICD IAM key `AKIAZTV5IHRYY5XWYBO2` was deleted in P3-S4 — me-south-1 CI/CD will fail if it references it
+16. **P4-S1.1: Bumped 25 repos** instead of planned 18 — included 7 additional repos for unified versioning.
+17. **P4-S3: Stale me-south-1 A records** in `production.tickets.mdlbeast.net` zone blocked Gateway/Geidea/Ecwid deploys. Deleted 3 records, retried. Old `internal.production-eu` zone orphaned (non-empty).
+18. **P4-S4: ~48 secrets updated** (plan undercounted) — 13 repos had environment-level secrets shadowing org-level values. Storybook variables skipped (no infra). Dev/sandbox secrets deferred to P5.
+19. **P4-S8: `ticketing-glue-gcp` bucket missed entirely** from migration plan — not in S3 Bucket Naming Strategy, not managed by Terraform, only referenced in automations CDK IAM policies. Discovered via AutomaticDataExporter Lambda errors.
+20. **P4-S9: Stale RDS cluster ID in `FINANCE_REPORT_SENDER_CONFIG`** — bulk secret migration (P3-S4) updated the region but not the Aurora cluster ID, which changed from `cocuscg4fsup` to `c0lac6czadei` because Aurora was restored from backup. Only affected `FINANCE_REPORT_SENDER_CONFIG` (3 nested connection strings); all other secrets had the correct cluster ID.
 
 ---
 
@@ -460,22 +453,15 @@ Each service deploys a specific set of CDK stacks. The stack names follow a patt
 
 ---
 
-## Phase 4: DNS Cutover — Detailed Procedure (Remaining Steps)
+## Phase 4: DNS Cutover — Completed Procedure Reference
 
-→ plan.md §Phase 4 for full planned procedure
+→ plan.md §Phase 4 for full planned procedure; execution.md §P4-S1 through §P4-S9 for results
 
-### P4-S5: Branch Merge Checklist
+Phase 4 is fully complete (2026-03-30). All hotfix branches merged, E2E validation passed, production stable. Below are reference notes from the cutover.
 
-Merge `hotfix/region-migration-eu-central-1` → `master`/`production` across all repos. This triggers CI/CD deployments.
+### SSM Params Updated at Cutover
 
-**Frontend-specific:**
-- Dashboard: merge triggers Vercel redeploy (`.env`, `.env.sandbox`, `vercel.json` changes)
-- Distribution Portal Frontend: verify deploy
-- Mobile Scanner: trigger release build workflow
-
-### P4 SSM Params to Update at Cutover
-
-These SSM params were set to `production-eu` temp domain during P2-S5 and must be updated:
+These SSM params were updated from `production-eu` temp domain to `production`:
 - `/prod/tp/csv/generator/ACCESS_CONTROL_SERVICE_URL` → `https://api.production.tickets.mdlbeast.net/`
 - `/prod/tp/extensions/ExtensionApiUrl` → `https://api.production.tickets.mdlbeast.net/`
 
@@ -630,13 +616,14 @@ Critical to avoid repeating the single-region risk that caused this migration. S
 |------|-----------|--------|-------------------|
 | Ecwid secret missing vendor keys | HIGH | MEDIUM | Functions deployed but will crash. Need ECWID_STORE_ID etc. from vendor dashboards. Not a blocker for other services. |
 | `ticketing-prod-media-eu` bucket is empty | MEDIUM | MEDIUM | No backup copies existed. Historical media assets unavailable until me-south-1 recovers or assets are re-uploaded. |
-| Cold Lambda performance post-go-live | MEDIUM | MEDIUM | Consider provisioned concurrency for gateway/sales. All 112 Lambdas will cold-start simultaneously when traffic arrives. |
 | No AWS Backup in eu-central-1 yet | HIGH | HIGH | PM-3 must be done promptly. If eu-central-1 has a failure before backup is configured, data since last me-south-1 backup (2026-03-23) could be lost. |
-| Aurora min ACU at 1.5 (not 8) | LOW | MEDIUM | Can increase via `aws rds modify-db-cluster` before go-live. Plan recommended 8 for cold-cache load. |
-| Dashboard CloudFront IDs not yet updated | MEDIUM | LOW | Old IDs hardcoded in dashboard. Must update to new IDs (`E2E0LQF2V6W4U`, `E1NNQYK06MZJSB`) before Phase 4 go-live. |
 | Uncommitted Terraform changes | LOW | HIGH | `ticketing-platform-terraform-prod` has uncommitted changes across vpc.tf, rds.tf, s3.tf, variables.tf, mobile.tf, group.tf. Must commit or changes will be lost. |
-| P4-S5 branch merges pending | MEDIUM | MEDIUM | CI/CD could deploy stale code from me-south-1 branches if any repo's CI triggers before hotfix merge. |
-| P4-S8 glue bucket partially migrated | MEDIUM | LOW | AutomaticDataExporter errors will continue until PR #40 merged. GCP team handoff needed for 16 BigQuery Transfer configs. |
+| P4-S8 glue bucket — GCP handoff pending | LOW | LOW | AWS-side complete. GCP team must update 16 BigQuery Transfer configs + scheduler re-enabled after. |
 | Storybook infra missing | LOW | LOW | Dashboard Storybook S3 bucket + CloudFront don't exist yet in eu-central-1. Variables skipped in P4-S4. Post-migration task. |
+| ~~Cold Lambda performance post-go-live~~ | ~~MEDIUM~~ | ~~MEDIUM~~ | **RESOLVED.** P4-S6 + P4-S7 confirmed production stable, no cold-start issues. |
+| ~~Aurora min ACU at 1.5 (not 8)~~ | ~~LOW~~ | ~~MEDIUM~~ | **RESOLVED.** P4-S7 monitoring confirmed RDS metrics nominal at current scaling. |
+| ~~Dashboard CloudFront IDs not yet updated~~ | ~~MEDIUM~~ | ~~LOW~~ | **RESOLVED.** Updated in hotfix branch, merged to master in P4-S5. |
+| ~~P4-S5 branch merges pending~~ | ~~MEDIUM~~ | ~~MEDIUM~~ | **RESOLVED 2026-03-30.** All hotfix branches merged to master/production. |
+| ~~P4-S8 glue bucket partially migrated~~ | ~~MEDIUM~~ | ~~LOW~~ | **RESOLVED 2026-03-30.** PR #40 merged, CDK deployed, errors stopped. GCP handoff remaining. |
 | ~~CNAME gap during Phase 4 internal DNS cutover~~ | ~~HIGH~~ | ~~HIGH~~ | **RESOLVED.** ~25 min gap during P4-S3, all 14 CNAMEs recreated. |
 | ~~23 non-API Lambdas crash on startup (DIAG-002)~~ | ~~CONFIRMED~~ | ~~CRITICAL~~ | **RESOLVED 2026-03-27.** All 23 repackaged + redeployed in P3-S5.1. |

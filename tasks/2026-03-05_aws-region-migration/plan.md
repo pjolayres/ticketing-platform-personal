@@ -2460,57 +2460,33 @@ Full ticket lifecycle test via real `production.tickets.mdlbeast.net` domain:
 
 ---
 
-## Phase 5: Dev+Sandbox Rebuild (Fresh)
+## Phase 5: Dev+Sandbox Rebuild
 
-**Duration:** 1-2 days | **Risk:** LOW | **Account:** `307824719505`
+**Duration:** 2-3 days | **Risk:** LOW | **Account:** `307824719505` | **Profile:** `AdministratorAccess-307824719505`
 
-Dev and sandbox have **no backups** — they are rebuilt from scratch with empty databases.
+Dev and sandbox share the same AWS account. The user has a local sandbox DB dump for seeding. Secrets and SSM parameters are replicated from me-south-1 (backups are last resort). No temporary domain needed — deploy directly under `dev.tickets.mdlbeast.net` and `sandbox.tickets.mdlbeast.net`. me-south-1 stays running.
 
-### 5.1 Overview
+**Branching strategy:** Production branch has all migration changes. Deployment flows in reverse: `production` → `sandbox` → `development`. For each repo with CDK: create `hotfix/sandbox-eu-migration` from `sandbox`, merge `production` into it, create PR (don't merge yet), do manual CDK deployment, then merge PR. Repeat for dev via `hotfix/dev-eu-migration`.
 
-Since dev/sandbox have no data to restore, the process is simpler than production:
-1. Terraform creates all infrastructure including RDS (no need to comment out — fresh empty cluster is fine)
-2. CDK deploys all stacks
-3. DB migrations create empty schemas
-4. Seed data manually or from prod exports
+**Detailed plan:** `.personal/tasks/2026-03-05_aws-region-migration/plan-phase-5.md` — contains 13 steps (P5-S1 through P5-S13) with complete CLI commands, all 22 lessons from production incorporated, branching strategy, merge group instructions, and verification procedures.
 
-### 5.2 Foundation (Account 307824719505)
+### Summary of Steps
 
-```bash
-export AWS_PROFILE=AdministratorAccess-307824719505
-export AWS_REGION=eu-central-1
-```
-
-1. **Service quota pre-checks** (same as Phase 2.1 but with `--profile AdministratorAccess-307824719505`)
-2. **Create Terraform state bucket:** `ticketing-terraform-dev-eu`
-3. **Create secrets** — same structure as prod, but with dev/sandbox values. Use `/dev/` and `/sandbox/` prefixes.
-4. **Terraform apply** (includes RDS cluster creation — no need to comment out/import since there's no backup to restore):
-   ```bash
-   cd ticketing-platform-terraform-dev/dev
-   # Import Route53 zones (dev.tickets.mdlbeast.net, sandbox.tickets.mdlbeast.net)
-   AWS_PROFILE=AdministratorAccess-307824719505 terraform init -reconfigure
-   AWS_PROFILE=AdministratorAccess-307824719505 terraform import \
-     'module.zones.aws_route53_zone.this["dev.tickets.mdlbeast.net"]' <dev-zone-id>
-   AWS_PROFILE=AdministratorAccess-307824719505 terraform import \
-     'module.zones.aws_route53_zone.this["sandbox.tickets.mdlbeast.net"]' <sandbox-zone-id>
-   AWS_PROFILE=AdministratorAccess-307824719505 terraform plan
-   AWS_PROFILE=AdministratorAccess-307824719505 terraform apply
-   ```
-5. **Populate SSM parameters** (same as Phase 2.5 but with `--profile AdministratorAccess-307824719505`)
-6. **Create DynamoDB Cache table** (same as Phase 2.5.1 but with `--profile AdministratorAccess-307824719505`)
-7. **CDK bootstrap**
-
-### 5.3 Services & Validation
-
-1. **Create ACM certificates** for dev + sandbox domains
-2. **Deploy infrastructure CDK** (11 stacks per environment, for both dev and sandbox)
-3. **Update connection strings** in secrets (new RDS endpoint from fresh cluster)
-4. **Deploy all service stacks** per matrix (same as Phase 3.5)
-5. **DB migrations** create empty schemas (no backup data — just fresh tables)
-6. **Seed test data** as needed
-7. **Update GitHub secrets** — `AWS_DEFAULT_REGION` for all repos (if not already done in Phase 4.4)
-8. **Merge feature branches** to `development` and `sandbox` branches
-9. **Validate** — basic smoke tests for dev/sandbox
+| Step | Description |
+|------|-------------|
+| P5-S1 | Pre-flight: Fix Terraform S3 bucket names (add `-eu` suffix to `s3.tf`, `variables.tf`, `mobile.tf`) |
+| P5-S2 | Pre-flight: Fix VPC DNS, RDS SG ingress, CloudFront bucket policies, cicd IAM, uncomment RDS cluster |
+| P5-S3 | Terraform foundation: quotas, state bucket, terraform secret, import Route53 zones + global resources, apply, set Serverless v2 scaling |
+| P5-S4 | Replicate secrets from me-south-1, promote to standalone |
+| P5-S5 | Replicate SSM parameters from me-south-1, override infrastructure values with eu-central-1 equivalents |
+| P5-S6 | Update RDS secret with endpoint, user populates DB manually via SSM tunnel, create DynamoDB Cache table |
+| P5-S7 | Update CONNECTION_STRINGS and region-dependent secrets (blanket me-south-1 → eu-central-1) |
+| P5-S8 | CDK bootstrap, delete stale Route53 A records, create 6 ACM certificates (3 per env) |
+| P5-S9 | Deploy infrastructure CDK (11 stacks × 2 envs), bulk-delete stale IAM inline policies first |
+| P5-S10 | Deploy per-service CDK stacks: create PRs (don't merge), manual CDK deployment with IAM import, then merge |
+| P5-S11 | Update GitHub environment-level secrets for dev + sandbox |
+| P5-S12 | Merge PRs in 6 groups (tools → infrastructure → templates → terraform → services by tier → gateway + frontends) |
+| P5-S13 | End-to-end validation for both environments |
 
 ---
 

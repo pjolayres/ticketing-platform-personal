@@ -76,8 +76,8 @@
   - [P4-S5: Merge to production \& deploy frontends](#p4-s5-merge-to-production--deploy-frontends)
   - [P4-S6: End-to-end validation (production domain)](#p4-s6-end-to-end-validation-production-domain)
   - [P4-S7: Post-go-live monitoring (72 hours)](#p4-s7-post-go-live-monitoring-72-hours)
-  - [P4-S8: Migrate ticketing-glue-gcp S3 bucket to eu-central-1](#p4-s8-migrate-ticketing-glue-gcp-s3-bucket-to-eu-central-1)
-  - [P4-S9: Fix stale RDS endpoint in FINANCE\_REPORT\_SENDER\_CONFIG](#p4-s9-fix-stale-rds-endpoint-in-finance_report_sender_config)
+  - [P4-S8: Migrate `ticketing-glue-gcp` S3 bucket to eu-central-1](#p4-s8-migrate-ticketing-glue-gcp-s3-bucket-to-eu-central-1)
+  - [P4-S9: Fix stale RDS endpoint in `FINANCE_REPORT_SENDER_CONFIG`](#p4-s9-fix-stale-rds-endpoint-in-finance_report_sender_config)
 - [Phase 5: Dev+Sandbox Rebuild](#phase-5-devsandbox-rebuild)
   - [P5-S1: Service quota pre-checks (account 307824719505)](#p5-s1-service-quota-pre-checks-account-307824719505)
   - [P5-S2: Foundation](#p5-s2-foundation)
@@ -1711,43 +1711,177 @@ Tier 3 services (deploy after Tier 2):
 
 ## Phase 5: Dev+Sandbox Rebuild
 
-### P5-S1: Service quota pre-checks (account 307824719505)
+> **Detailed plan:** `.personal/tasks/2026-03-05_aws-region-migration/plan-phase-5.md` — contains full CLI commands, lessons incorporated, and branching strategy.
+> **Account:** `307824719505` | **Profile:** `AdministratorAccess-307824719505`
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
-- **Notes:**
-
-### P5-S2: Foundation
+### P5-S1: Pre-flight — Fix Terraform S3 bucket names
 
 - **Status:** `PENDING`
 - **Started:**
 - **Completed:**
 - **Substeps:**
+  - [ ] Rename S3 buckets to `-eu` suffix in `s3.tf`, `variables.tf`, `mobile.tf`
+  - [ ] Update IAM policy ARNs referencing bucket names
+  - [ ] Commit on `hotfix/region-migration-eu-central-1`
+- **Notes:**
+
+### P5-S2: Pre-flight — Fix Terraform VPC, SG, CloudFront, RDS
+
+- **Status:** `PENDING`
+- **Started:**
+- **Completed:**
+- **Substeps:**
+  - [ ] Add `enable_dns_hostnames`/`enable_dns_support` to `vpc.tf`
+  - [ ] Add VPC CIDR port 5432 ingress to `rds.tf`
+  - [ ] Add CloudFront OAC bucket policies to `s3.tf`
+  - [ ] Add `cloudfront:CreateInvalidation` to `user-cicd.tf`
+  - [ ] Add `*.tfstate` to `.gitignore`
+  - [ ] Uncomment RDS cluster/instance blocks in `rds.tf` (no serverless scaling in TF)
+  - [ ] Commit on `hotfix/region-migration-eu-central-1`
+- **Notes:**
+
+### P5-S3: Terraform foundation
+
+- **Status:** `PENDING`
+- **Started:**
+- **Completed:**
+- **Substeps:**
+  - [ ] Service quota pre-checks (Lambda, VPC NAT, RDS)
   - [ ] Create Terraform state bucket `ticketing-terraform-dev-eu`
-  - [ ] Create secrets (dev + sandbox prefixes)
+  - [ ] Replicate `terraform` secret from me-south-1, promote to standalone
   - [ ] Import Route53 zones (dev, sandbox)
-  - [ ] `terraform apply` (includes RDS cluster — fresh, no backup)
-  - [ ] Populate SSM parameters
-  - [ ] Create DynamoDB Cache table
-  - [ ] CDK bootstrap
+  - [ ] Import global resources (IAM, CloudFront OACs, state bucket)
+  - [ ] Handle S3 ACL issues if any
+  - [ ] `terraform apply`
+  - [ ] Set Serverless v2 scaling via CLI (MinCapacity=0.5, MaxCapacity=16)
+- **Outputs:**
+  - `VPC_ID`:
+  - `SUBNET_1_ID`:
+  - `SUBNET_2_ID`:
+  - `SUBNET_3_ID`:
+  - `RDS_SG_ID`:
+  - `KMS_KEY_ID`:
+  - `DEV_ZONE_ID`:
+  - `SANDBOX_ZONE_ID`:
+  - `AURORA_ENDPOINT`:
+  - `AURORA_RO_ENDPOINT`:
 - **Notes:**
 
-### P5-S3: Services & validation
+### P5-S4: Replicate secrets from me-south-1
 
 - **Status:** `PENDING`
 - **Started:**
 - **Completed:**
 - **Substeps:**
-  - [ ] Create ACM certificates (dev + sandbox)
-  - [ ] Deploy infrastructure CDK (11 stacks × 2 envs)
-  - [ ] Update connection strings in secrets
-  - [ ] Deploy all service stacks per matrix
-  - [ ] DB migrations (fresh empty schemas)
-  - [ ] Seed test data
-  - [ ] Update GitHub secrets if not done in P4-S4
-  - [ ] Merge branches to development/sandbox
-  - [ ] Smoke test dev + sandbox
+  - [ ] Replicate dev service secrets (20) from me-south-1
+  - [ ] Replicate sandbox service secrets (20) from me-south-1
+  - [ ] Replicate shared secrets (rds/ticketing-cluster, devops)
+  - [ ] Promote ALL replicas to standalone
+  - [ ] Verify ~43 secrets exist and are standalone
+- **Notes:**
+
+### P5-S5: Replicate SSM parameters from me-south-1
+
+- **Status:** `PENDING`
+- **Started:**
+- **Completed:**
+- **Substeps:**
+  - [ ] Bulk-replicate all params from me-south-1 (skip Kafka/MSK/Elasticsearch/deprecated)
+  - [ ] Override subnet IDs (suffix-only), RDS SG, bucket names, KMS key, service URLs
+  - [ ] Verify parameter count
+- **Notes:**
+
+### P5-S6: Populate database
+
+- **Status:** `PENDING`
+- **Started:**
+- **Completed:**
+- **Substeps:**
+  - [ ] Update `/rds/ticketing-cluster` secret with actual Aurora endpoint
+  - [ ] User populates DB manually via SSM tunnel from local sandbox dump
+  - [ ] Create DynamoDB Cache table
+- **Notes:**
+
+### P5-S7: Update connection strings & region-dependent secrets
+
+- **Status:** `PENDING`
+- **Started:**
+- **Completed:**
+- **Substeps:**
+  - [ ] Update CONNECTION_STRINGS in all dev+sandbox service secrets (use jq pipeline)
+  - [ ] Update FINANCE_REPORT_SENDER_CONFIG with correct new cluster endpoint
+  - [ ] Blanket me-south-1 → eu-central-1 replacement
+  - [ ] Strip deprecated keys (Elasticsearch, Redis, Kafka)
+  - [ ] Verify zero me-south-1 references and no PLACEHOLDERs
+- **Notes:**
+
+### P5-S8: CDK bootstrap + ACM certificates + delete stale DNS records
+
+- **Status:** `PENDING`
+- **Started:**
+- **Completed:**
+- **Substeps:**
+  - [ ] CDK bootstrap (account 307824719505)
+  - [ ] Delete stale me-south-1 A records from dev + sandbox Route53 zones
+  - [ ] Create 6 ACM certificates (3 dev + 3 sandbox: gateway, geidea, ecwid)
+  - [ ] Store cert ARNs in SSM
+- **Notes:**
+
+### P5-S9: Deploy infrastructure CDK (11 stacks × 2 envs)
+
+- **Status:** `PENDING`
+- **Started:**
+- **Completed:**
+- **Substeps:**
+  - [ ] Bulk-delete stale dev/sandbox IAM inline policies (backup first)
+  - [ ] Deploy 11 sandbox infrastructure stacks (EventBus → SlackNotification)
+  - [ ] Deploy 11 dev infrastructure stacks (shared stacks already deployed)
+- **Notes:**
+
+### P5-S10: Deploy per-service CDK stacks (sandbox first, then dev)
+
+- **Status:** `PENDING`
+- **Started:**
+- **Completed:**
+- **Substeps:**
+  - [ ] Create `hotfix/sandbox-eu-migration` branches, PRs (don't merge)
+  - [ ] Manual CDK deployment for all 24 services (sandbox): build → lambda package → import → deploy
+  - [ ] Create `hotfix/dev-eu-migration` branches, PRs (don't merge)
+  - [ ] Manual CDK deployment for all 24 services (dev)
+  - [ ] Run DB migrations for all services with DbMigrator
+- **Notes:**
+
+### P5-S11: Update GitHub secrets & variables
+
+- **Status:** `PENDING`
+- **Started:**
+- **Completed:**
+- **Substeps:**
+  - [ ] Update environment-level `AWS_DEFAULT_REGION`, `CDK_DEFAULT_REGION` for dev+sandbox
+  - [ ] Update IAM credentials if applicable
+- **Notes:**
+
+### P5-S12: Merge PRs
+
+- **Status:** `PENDING`
+- **Started:**
+- **Completed:**
+- **Substeps:**
+  - [ ] Sandbox: Merge Group 1 (tools → infrastructure → templates) sequentially
+  - [ ] Sandbox: Merge Group 2 (terraform-dev)
+  - [ ] Sandbox: Merge Groups 3-5 (services by tier, parallel within group)
+  - [ ] Sandbox: Merge Group 6 (gateway + frontends, last)
+  - [ ] Dev: Repeat all merge groups for development branch
+- **Notes:**
+
+### P5-S13: End-to-end validation
+
+- **Status:** `PENDING`
+- **Started:**
+- **Completed:**
+- **Checklist:**
+  - [ ] Sandbox: API Gateway health, Geidea, internal DNS, DB connectivity, EventBridge→SQS, CloudWatch, dashboard login
+  - [ ] Dev: Same checklist against `*.dev.tickets.mdlbeast.net`
 - **Notes:**
 
 ---

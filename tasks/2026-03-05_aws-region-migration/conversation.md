@@ -1,4 +1,12 @@
-Comprehensive read of `.personal/tasks/2026-03-05_aws-region-migration/plan.md` and `.personal/tasks/2026-03-05_aws-region-migration/execution.md`. Then await further instructions.
+Comprehensively read of `.personal/tasks/2026-03-05_aws-region-migration/plan.md` and `.personal/tasks/2026-03-05_aws-region-migration/execution.md`. Then await further instructions.
+
+=======
+
+Catch yourself up by reading `.personal/tasks/2026-03-05_aws-region-migration/summary.md`. Then await further instructions.
+
+=======
+
+retroactively update `.personal/tasks/2026-03-05_aws-region-migration/summary.md` based on the content of plan.md and execution.md . just remember that summary.md is meant as a context-optimized summary of the information in the much larget plan.md and execution.md documents. Make sure to leave pointers to the sections in plan.md and execution.md so that it will be easy for agents to dig deeper into the large document if necessary
 
 =======
 
