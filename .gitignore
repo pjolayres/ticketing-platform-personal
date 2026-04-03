@@ -7,3 +7,4 @@ tasks/2026-03-05_aws-region-migration/backup-ssm-dev
 tasks/2026-03-05_aws-region-migration/backup-ssm-sandbox
 tasks/2026-03-05_aws-region-migration/backup-iam-policies
 tasks/2026-03-05_aws-region-migration/backup-iam-policies
+tasks/2026-03-05_aws-region-migration/backup-iam-policies-dev
