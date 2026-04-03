@@ -1,5 +1,31 @@
 # Phase 5: Dev+Sandbox Migration Plan (eu-central-1)
 
+- [Context](#context)
+- [Lessons Incorporated from Production Migration](#lessons-incorporated-from-production-migration)
+- [Step-by-Step Execution Plan](#step-by-step-execution-plan)
+  - [P5-S1: Pre-flight — Fix Terraform S3 Bucket Names](#p5-s1-pre-flight--fix-terraform-s3-bucket-names)
+  - [P5-S2: Pre-flight — Fix Terraform VPC, Security Group, and CloudFront Issues](#p5-s2-pre-flight--fix-terraform-vpc-security-group-and-cloudfront-issues)
+  - [P5-S3: Terraform Foundation](#p5-s3-terraform-foundation)
+  - [P5-S4: Replicate Secrets from me-south-1](#p5-s4-replicate-secrets-from-me-south-1)
+  - [P5-S5: Replicate SSM Parameters from me-south-1](#p5-s5-replicate-ssm-parameters-from-me-south-1)
+  - [P5-S6: Populate Database](#p5-s6-populate-database)
+  - [P5-S7: Update Connection Strings \& Region-Dependent Secrets](#p5-s7-update-connection-strings--region-dependent-secrets)
+  - [P5-S8: CDK Bootstrap + ACM Certificates + Delete Stale DNS Records](#p5-s8-cdk-bootstrap--acm-certificates--delete-stale-dns-records)
+  - [P5-S9: Deploy Infrastructure CDK (11 Stacks x 2 Envs)](#p5-s9-deploy-infrastructure-cdk-11-stacks-x-2-envs)
+  - [P5-S10: Deploy Per-Service CDK Stacks (Sandbox First, Then Dev)](#p5-s10-deploy-per-service-cdk-stacks-sandbox-first-then-dev)
+  - [P5-S11: Update GitHub Secrets \& Variables](#p5-s11-update-github-secrets--variables)
+  - [P5-S12: Merge PRs (After Manual CDK Deployment Succeeds)](#p5-s12-merge-prs-after-manual-cdk-deployment-succeeds)
+    - [Merge Group 1 — Merge FIRST (dependencies for other services)](#merge-group-1--merge-first-dependencies-for-other-services)
+    - [Merge Group 2 — Merge SECOND (Terraform)](#merge-group-2--merge-second-terraform)
+    - [Merge Group 3 — Merge in PARALLEL (backend services, Tier 1)](#merge-group-3--merge-in-parallel-backend-services-tier-1)
+    - [Merge Group 4 — Merge in PARALLEL (backend services, Tier 2)](#merge-group-4--merge-in-parallel-backend-services-tier-2)
+    - [Merge Group 5 — Merge in PARALLEL (backend services, Tier 3)](#merge-group-5--merge-in-parallel-backend-services-tier-3)
+    - [Merge Group 6 — Merge LAST (gateway + frontends)](#merge-group-6--merge-last-gateway--frontends)
+    - [Merge Anytime (no CDK, no deployment order dependency)](#merge-anytime-no-cdk-no-deployment-order-dependency)
+  - [P5-S13: End-to-End Validation](#p5-s13-end-to-end-validation)
+- [Files Modified by This Plan](#files-modified-by-this-plan)
+- [Verification](#verification)
+
 ## Context
 
 Production migration to eu-central-1 completed successfully (Phases 1-4). Dev and sandbox environments remain in me-south-1 and must be rebuilt in eu-central-1. Both environments share AWS account `307824719505`. The user has a local sandbox DB dump that will serve as the starting point for both dev and sandbox databases.
@@ -565,7 +591,27 @@ Dev/sandbox IAM roles (suffixed `-dev` / `-sandbox`) may have stale inline polic
 # Then delete all stale inline policies
 ```
 
-**Deploy sandbox first** (since `production` → `sandbox` is the next merge target):
+**Branching for `ticketing-platform-infrastructure`:**
+
+The infrastructure CDK must be deployed from hotfix branches (same pattern as per-service repos in P5-S10).
+
+**Sandbox first:**
+1. `cd ticketing-platform-infrastructure && git fetch origin`
+2. Check whether sandbox branch is named `sandbox` or `release/sandbox`
+3. `git checkout sandbox && git pull origin sandbox` (or `release/sandbox`)
+4. `git checkout -b hotfix/sandbox-eu-migration`
+5. `git merge production` (or `master`) — brings in all migration changes
+6. Push and **create PR**: `hotfix/sandbox-eu-migration` → `sandbox` — **DO NOT MERGE YET**
+7. Deploy 11 sandbox stacks from `hotfix/sandbox-eu-migration` (below)
+
+**Dev (after sandbox deploys succeed):**
+1. `git checkout development && git pull origin development` (or `release/development`)
+2. `git checkout -b hotfix/dev-eu-migration`
+3. `git merge sandbox` — brings in sandbox changes
+4. Push and **create PR**: `hotfix/dev-eu-migration` → `development` — **DO NOT MERGE YET**
+5. Deploy 9 dev stacks from `hotfix/dev-eu-migration` (below)
+
+**Deploy sandbox (from `hotfix/sandbox-eu-migration`):**
 
 ```bash
 export AWS_PROFILE=AdministratorAccess-307824719505
@@ -587,7 +633,11 @@ cdk deploy TP-ApiGatewayVpcEndpointStack --require-approval never     # shared (
 cdk deploy TP-RdsProxyStack --require-approval never                   # shared
 cdk deploy TP-XRayInsightNotificationStack-sandbox --require-approval never
 cdk deploy TP-SlackNotificationStack-sandbox --require-approval never
+```
 
+**Deploy dev (from `hotfix/dev-eu-migration`):**
+
+```bash
 # ===== DEV ENVIRONMENT =====
 export ENV_NAME=dev
 
@@ -603,6 +653,8 @@ cdk deploy TP-XRayInsightNotificationStack-dev --require-approval never
 cdk deploy TP-SlackNotificationStack-dev --require-approval never
 ```
 
+**After both envs deploy:** User merges both PRs — CI/CD sees stacks already exist and performs clean updates.
+
 ---
 
 ### P5-S10: Deploy Per-Service CDK Stacks (Sandbox First, Then Dev)
@@ -610,6 +662,10 @@ cdk deploy TP-SlackNotificationStack-dev --require-approval never
 **Branching and deployment strategy:**
 
 The first CDK deploy for each service will fail via CI/CD because of global IAM role conflicts (lesson #5). The approach is: **create the PR first (don't merge yet), do manual CDK deployment from the hotfix branch to import IAM roles and create stacks, then merge the PR** — CI/CD sees stacks already exist and performs a clean update.
+
+**Pre-deploy fix required for `media` and `integration`:** Before creating hotfix branches, rename S3 bucket names in dev/sandbox env-var files to add `-eu` suffix. These were missed in Phase 1 (P1-T4 only renamed prod env-vars). Make these changes on the hotfix branch after merging production, so they flow into the correct environment branches:
+- `ticketing-platform-media`: `env-var.dev.json` + `env-var.sandbox.json` — rename `MEDIA_STORAGE_BUCKET_NAME` (`ticketing-dev-media` → `ticketing-dev-media-eu`, `ticketing-sandbox-media` → `ticketing-sandbox-media-eu`) and `STORAGE_BUCKET_NAME` (`dev-pdf-tickets` → `dev-pdf-tickets-eu`, `sandbox-pdf-tickets` → `sandbox-pdf-tickets-eu`)
+- `ticketing-platform-integration`: `env-var.dev.json` + `env-var.sandbox.json` — rename `STORAGE_BUCKET_NAME` (`dev-pdf-tickets` → `dev-pdf-tickets-eu`, `sandbox-pdf-tickets` → `sandbox-pdf-tickets-eu`)
 
 **For sandbox (first):**
 1. For each repo with a CDK project, `git fetch origin` then `git checkout sandbox && git pull origin sandbox` (or `release/sandbox` — check branch names). **Must be on latest remote HEAD.**

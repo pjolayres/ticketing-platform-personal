@@ -2590,6 +2590,12 @@ Do this after Phase 3.6 validation (prod) and Phase 5.3 (dev/sandbox).
 - [ ] Terminate runner EC2 instances
 - [ ] Update ConfigMap CI/CD workflows to use `ubuntu-latest` (or delete workflows entirely)
 
+### Route53 Cleanup (dev/sandbox account `307824719505`)
+- [ ] Delete stale A records in `dev.tickets.mdlbeast.net` zone (`Z034846063FQBL2456ZL`): managment, omada-devices, openvpn, runner1a, runner1b, sonarqube — all point to old me-south-1 IPs
+- [ ] Delete stale CNAME records in `sandbox.tickets.mdlbeast.net` zone (`Z02971401UIZV3WZPFDVE`): wildcard `*.sandbox.*`, api-old, 7x `internal-*` (access, catalogue, inventory, media, organizations, pricing, sales) — old K8s-era routing
+- [ ] Delete stale me-south-1 private hosted zone `internal.dev.tickets.mdlbeast.net` (`Z0404121C1F04FSRF1W4`) — associated with dead VPC `vpc-055f0f6c761c60c05`
+- [ ] Delete stale me-south-1 private hosted zone `internal.sandbox.tickets.mdlbeast.net` (`Z06456261Z0UWH5PJBUS9`) — associated with dead VPC `vpc-055f0f6c761c60c05`
+
 ### Configuration
 - [ ] Promote any Secrets Manager replicas to standalone in eu-central-1 (if applicable)
 - [ ] Verify no remaining GitHub secret references to me-south-1

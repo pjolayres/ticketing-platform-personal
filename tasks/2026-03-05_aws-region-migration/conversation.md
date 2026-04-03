@@ -1,4 +1,13 @@
-Comprehensively read of `.personal/tasks/2026-03-05_aws-region-migration/plan.md` and `.personal/tasks/2026-03-05_aws-region-migration/execution.md`. Then await further instructions.
+Comprehensively read `.personal/tasks/2026-03-05_aws-region-migration/plan.md` and `.personal/tasks/2026-03-05_aws-region-migration/execution.md`. Then await further instructions.
+
+=======
+
+Comprehensively read these documents:
+- `.personal/tasks/2026-03-05_aws-region-migration/plan.md`
+- `.personal/tasks/2026-03-05_aws-region-migration/plan-phase-5.md`
+- `.personal/tasks/2026-03-05_aws-region-migration/execution.md`.
+
+Then await further instructions.
 
 =======
 

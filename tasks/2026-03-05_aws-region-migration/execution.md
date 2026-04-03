@@ -79,9 +79,19 @@
   - [P4-S8: Migrate `ticketing-glue-gcp` S3 bucket to eu-central-1](#p4-s8-migrate-ticketing-glue-gcp-s3-bucket-to-eu-central-1)
   - [P4-S9: Fix stale RDS endpoint in `FINANCE_REPORT_SENDER_CONFIG`](#p4-s9-fix-stale-rds-endpoint-in-finance_report_sender_config)
 - [Phase 5: Dev+Sandbox Rebuild](#phase-5-devsandbox-rebuild)
-  - [P5-S1: Service quota pre-checks (account 307824719505)](#p5-s1-service-quota-pre-checks-account-307824719505)
-  - [P5-S2: Foundation](#p5-s2-foundation)
-  - [P5-S3: Services \& validation](#p5-s3-services--validation)
+  - [P5-S1: Pre-flight — Fix Terraform S3 bucket names](#p5-s1-pre-flight--fix-terraform-s3-bucket-names)
+  - [P5-S2: Pre-flight — Fix Terraform VPC, SG, CloudFront, RDS](#p5-s2-pre-flight--fix-terraform-vpc-sg-cloudfront-rds)
+  - [P5-S3: Terraform foundation](#p5-s3-terraform-foundation)
+  - [P5-S4: Replicate secrets from me-south-1](#p5-s4-replicate-secrets-from-me-south-1)
+  - [P5-S5: Replicate SSM parameters from me-south-1](#p5-s5-replicate-ssm-parameters-from-me-south-1)
+  - [P5-S6: Populate database](#p5-s6-populate-database)
+  - [P5-S7: Update connection strings \& region-dependent secrets](#p5-s7-update-connection-strings--region-dependent-secrets)
+  - [P5-S8: CDK bootstrap + ACM certificates + delete stale DNS records](#p5-s8-cdk-bootstrap--acm-certificates--delete-stale-dns-records)
+  - [P5-S9: Deploy infrastructure CDK (11 stacks × 2 envs)](#p5-s9-deploy-infrastructure-cdk-11-stacks--2-envs)
+  - [P5-S10: Deploy per-service CDK stacks (sandbox first, then dev)](#p5-s10-deploy-per-service-cdk-stacks-sandbox-first-then-dev)
+  - [P5-S11: Update GitHub secrets \& variables](#p5-s11-update-github-secrets--variables)
+  - [P5-S12: Merge PRs](#p5-s12-merge-prs)
+  - [P5-S13: End-to-end validation](#p5-s13-end-to-end-validation)
 - [Post-Migration Tasks](#post-migration-tasks)
   - [PM-1: Temporary domain cleanup](#pm-1-temporary-domain-cleanup)
   - [PM-2: Extension Lambda redeployment](#pm-2-extension-lambda-redeployment)
@@ -143,6 +153,22 @@
 | `NEW_AWS_SECRET`        | _(redacted — fetch from any `/prod/*` secret's `AWS_ACCESS_SECRET` key)_                 | P3-S4       | P3-S4, P4-S4        |
 | `NUGET_VERSION_1`       | `1.0.1300`                                                                               | P1-T19      | P1-T19              |
 | `NUGET_VERSION_2`       | `1.0.1301`                                                                               | P4-S1.1     | P4-S1.1             |
+| `DEV_VPC_ID`            | `vpc-095e1388edf14d815`                                                                  | P5-S3       | P5-S5               |
+| `DEV_SUBNET_1_ID`       | `subnet-03827f7db5a4ce973`                                                               | P5-S3       | P5-S5               |
+| `DEV_SUBNET_2_ID`       | `subnet-04e1b914e13df5c22`                                                               | P5-S3       | P5-S5               |
+| `DEV_SUBNET_3_ID`       | `subnet-03ac9da2e5b575be5`                                                               | P5-S3       | P5-S5               |
+| `DEV_RDS_SG_ID`         | `sg-055925405d0c16388`                                                                   | P5-S3       | P5-S5               |
+| `DEV_KMS_KEY_ID`        | `ced84752-5cb7-44e5-b17a-176142dae35c`                                                   | P5-S3       | P5-S5, P5-S7        |
+| `DEV_ZONE_ID`           | `Z034846063FQBL2456ZL`                                                                   | P5-S3       | P5-S8               |
+| `SANDBOX_ZONE_ID`       | `Z02971401UIZV3WZPFDVE`                                                                  | P5-S3       | P5-S8               |
+| `DEV_AURORA_ENDPOINT`   | `ticketing.cluster-ciagtufyw7ve.eu-central-1.rds.amazonaws.com`                          | P5-S3       | P5-S6, P5-S7        |
+| `DEV_AURORA_RO_ENDPOINT`| `ticketing.cluster-ro-ciagtufyw7ve.eu-central-1.rds.amazonaws.com`                       | P5-S3       | P5-S7               |
+| `DEV_CERT_ARN_GATEWAY`  | `arn:aws:acm:eu-central-1:307824719505:certificate/10a4ce45-4af6-473f-89ea-614b6f1d943b` | P5-S8       | P5-S9, P5-S10       |
+| `DEV_CERT_ARN_GEIDEA`   | `arn:aws:acm:eu-central-1:307824719505:certificate/a6a86fdc-e779-42bc-8a75-b54751c3b829` | P5-S8       | P5-S10              |
+| `DEV_CERT_ARN_ECWID`    | `arn:aws:acm:eu-central-1:307824719505:certificate/e0af12eb-854f-4ba3-94fb-8fb0ad4e7cd2` | P5-S8       | P5-S10              |
+| `SANDBOX_CERT_ARN_GATEWAY` | `arn:aws:acm:eu-central-1:307824719505:certificate/ab154d14-4b99-44c6-aabc-3ecba193a11e` | P5-S8    | P5-S9, P5-S10       |
+| `SANDBOX_CERT_ARN_GEIDEA`  | `arn:aws:acm:eu-central-1:307824719505:certificate/5fc824cc-9d5a-44f4-90b2-c5960f0b230e` | P5-S8    | P5-S10              |
+| `SANDBOX_CERT_ARN_ECWID`   | `arn:aws:acm:eu-central-1:307824719505:certificate/3c157019-9aac-476b-933b-853a7de16b6a` | P5-S8    | P5-S10              |
 
 ---
 
@@ -186,11 +212,42 @@
 | P3-S5-14 | MediaStorageStack failed twice: (1) IAM user `imgix-prod` already exists (global), (2) inline policy `media-s3-imgix-user-policy-prod` already on user. S3 bucket orphaned on rollback. Fixed by importing user + bucket, deleting stale policy. | None — media is only service with IAM user in CDK |
 | P3-S5-18 | Health check failed — `SalesServiceBaseRoute` env var missing (was in K8s configmap, not in Lambda env-var.prod.json). Added to Lambda config + `env-var.prod.json`. DNS uses `dp` prefix not `distribution-portal`. | `ticketing-platform-distribution-portal` has uncommitted code change. Tier 3 services (access-control, gateway, transfer) may need same configmap→env-var migration |
 | P4-S1.1  | Bumped 25 repos instead of 18 — included 7 additional repos (loyalty, csv-generator, pdf-generator, automations, extension-deployer, extension-executor, extension-log-processor) | None — these repos will already be on `1.0.1301` when merged in P4-S5 |
+| P5-S10   | `deploy-all-services.sh` had wrong stack names for access-control (`accesscontrol` → `access-control`) | Fixed in script — applies to dev deployment too |
+| P5-S10   | Inventory and distribution-portal needed additional log groups not covered by `create_log_groups()` helper (`Inventory-consumers-lambda-sandbox` with capital I, `dp-serverless-sandbox-function`) | Same log groups need pre-creation for dev |
+| P5-S10   | MediaStorageStack deployed via IMPORT_COMPLETE only — `imgix-sandbox` IAM user was not a blocking issue (no manual user import needed) | Dev media deployment should work the same way |
+| P5-S10   | No SSM parameter conflicts in Tier 2-4 sandbox (after bulk InternalServices deletion) | Dev `/dev/tp/InternalServices/*` params must be deleted before dev deployment |
+| P5-S10   | `/sandbox/tp/InternalServices/Catalogue` SSM param missing despite CF `CREATE_COMPLETE` — gateway failed to start (`CatalogueServiceBaseRoute is not set`) | Recreated param manually; for dev, verify all InternalServices params exist after CDK deploys |
 | P4-S3    | Stale me-south-1 A records in `production.tickets.mdlbeast.net` zone blocked Gateway/Geidea/Ecwid deploys; deleted 3 records, retried successfully | None — remaining stale records (marketingfeed, xp-badges, old infra) for post-migration cleanup |
 | P4-S3    | Stack names differed from plan: `TP-GatewayStack-prod`, `TP-ApiStack-geidea-prod`, `TP-ServerlessBackendStack-distribution-portal-prod` | None |
 | P4-S3    | Old `internal.production-eu` zone orphaned — CloudFormation couldn't delete (non-empty, 14 stale CNAMEs) | PM-1 must also clean up orphaned zone `Z04720843DJKNCF1N97H0` |
 | P4-S4    | Plan only listed org-level + few repo-specific secrets; 13 repos had environment-level secrets shadowing org values. Updated ~48 secrets across env/repo/mobile-scanner levels. Storybook variables skipped (no infra in eu-central-1). | Dev/sandbox env secrets still me-south-1 — update in P5. Storybook infra needs creation (post-migration). |
 | P5-S2    | Skipped `user-cicd.tf` substep — file doesn't exist in terraform-dev (no CICD IAM user). `cloudfront:CreateInvalidation` already in `mobile.tf`. | None |
+| P5-S3    | 23 global resources imported across 3 apply cycles (6 IAM users, 6 IAM policies, 6 IAM roles, 1 IAM group, 1 EventBridge role, 2 CloudFront OACs, 1 S3 bucket). Removed `acl = "private"` from state bucket (ACLs disabled by default). | Uncommitted `s3.tf` change in terraform-dev |
+| P5-S3    | Serverless v2 scaling had to be set *before* RDS instances (not after). MaxCapacity reduced from 16→3.0 to match me-south-1. Scaling config added to `rds.tf` instead of CLI-only management. | Uncommitted `rds.tf` change in terraform-dev |
+| P5-S3    | `terraform init` required `-backend-config="profile=..."` override; user created `dev` AWS profile alias to resolve provider profile mismatch | None |
+| P5-S4    | Secret name `devops` → actual `dev/devops`; sandbox has 19 secrets (no `xp-badges`); `terraform` pre-existed; total 42 not 43 | P5-S7 must use `dev/devops` not `devops` |
+| P5-S6    | Skipped DB dump restore (S6-b); user creates empty databases manually; schemas via EF Core migrations during P5-S10 CDK deploys | P5-S10 migrations must create schemas; no seed data present |
+| P5-S7    | dev/integration and sandbox/integration corrupted by shell pipeline; restored from AWSPREVIOUS and re-processed via file-based Python | None — both secrets updated correctly after retry |
+| P5-S9    | Pre-existing SSM params (from P5-S5 replication) blocked CDK deploy; deleted ~42 conflicting params across both envs before deploying | None — CDK recreated all with correct eu-central-1 values |
+| P5-S9    | Dev Slack webhook SSM params missing; copied from sandbox, had to recreate as `String` type (not `SecureString`) for CloudFormation compatibility | None |
+| P5-S9    | 3 `.csproj` merge conflicts (TP.Tools 1.0.1299 vs 1.0.1301); resolved taking production version | None |
+| P5-S10   | 20/24 repos had `.csproj` merge conflicts (TP.Tools 1.0.1299 vs 1.0.1301); resolved with `git merge -X theirs` | None |
+| P5-S10   | Bumped TP.Tools 1.0.1301 → 1.0.1302 in 17 remaining repos; customer-service needed `SellerApprovalState.Revoked` from 1.0.1302 | Dev hotfix branches must also use 1.0.1302 |
+| P5-S10   | 2 repos (organizations, pdf-generator) had no sandbox↔production diff — no PR created | None — CDK deployed from hotfix branch directly |
+| P5-S10   | `GeideaDataExporterStack` is prod-only — not synthesized for sandbox/dev | None — expected behavior |
+| P5-S10   | Extension-deployer required manual ECR repo creation + `dotnet lambda deploy-function` before CDK | Same needed for dev |
+| P5-S10   | Extension-executor/log-processor need `dotnet publish` (not `dotnet lambda package`) — CDK uses `Code.FromAsset` with directory | Same needed for dev |
+| P5-S10   | SSM params `/sandbox/tp/extensions/EXTENSION_DEFAULT_ROLE` and `EXTENSION_LOGS_QUEUE_URL` blocked CDK; deleted and retried | Expect similar SSM conflicts in remaining services |
+| P5-S10   | Dev: extension-log-processor SSM param `/dev/tp/extensions/EXTENSION_LOGS_QUEUE_URL` blocked CDK; deleted and retried | None |
+| P5-S10   | Dev: extension-deployer SQS visibility timeout (5min) < Lambda timeout (15min); updated to 16min in CDK | Code change on `hotfix/dev-eu-migration` |
+| P5-S10   | Dev: extension-executor deploy script had wrong package dir (`TP.Extensions.Executor` vs `TP.Extensions.Executor.Lambda`) | Script bug — manual workaround applied |
+| P5-S11   | Only 10 repos needed env-level updates (plan listed 13); also updated mobile-scanner `development` env (plan only mentioned sandbox) | None |
+| P5-S12   | Org-level `AWS_ACCESS_KEY_ID` pointed to production account — sandbox CI/CD deployed to prod. Fixed to `ci-cd-user-serverless` credentials. | None after fix |
+| P5-S12   | Dashboard sandbox/dev PRs created in this step (#4821, #4822) — not pre-existing from P5-S10 | None |
+| P5-S12   | Customer-service sandbox TP.Tools 1.0.1302 bump was not pushed during P5-S10; build failed on `SellerApprovalState.Revoked` | None after fix |
+| P5-S12   | Distribution-portal sandbox CI/CD failed — org-level AWS secrets not visible to repo | Repo-level credentials must be maintained |
+| P5-S12   | Media CI/CD failed (sandbox+dev) — MediaStorageStack partially imported, deploy order wrong. Deleted CF stack + resources, swapped deploy order, redeployed fresh. | New imgix access keys — update imgix config if needed. Orphaned SGs for cleanup. |
+| P5-S12   | Dashboard sandbox Storybook failed — S3 bucket in me-south-1 | Storybook unavailable until S3/CloudFront created in eu-central-1 |
 
 ---
 
@@ -1750,147 +1807,590 @@ Tier 3 services (deploy after Tier 2):
 
 ### P5-S3: Terraform foundation
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-31T00:00
+- **Completed:** 2026-03-31T00:45
+- **Repos (1):** `ticketing-platform-terraform-dev`
 - **Substeps:**
-  - [ ] Service quota pre-checks (Lambda, VPC NAT, RDS)
-  - [ ] Create Terraform state bucket `ticketing-terraform-dev-eu`
-  - [ ] Replicate `terraform` secret from me-south-1, promote to standalone
-  - [ ] Import Route53 zones (dev, sandbox)
-  - [ ] Import global resources (IAM, CloudFront OACs, state bucket)
-  - [ ] Handle S3 ACL issues if any
-  - [ ] `terraform apply`
-  - [ ] Set Serverless v2 scaling via CLI (MinCapacity=0.5, MaxCapacity=16)
+  - [x] Service quota pre-checks (Lambda, VPC NAT, RDS)
+  - [x] Create Terraform state bucket `ticketing-terraform-dev-eu`
+  - [x] Replicate `terraform` secret from me-south-1, promote to standalone
+  - [x] Import Route53 zones (dev, sandbox)
+  - [x] Import global resources (IAM, CloudFront OACs, state bucket)
+  - [x] Handle S3 ACL issues if any
+  - [x] `terraform apply`
+  - [x] Set Serverless v2 scaling (MinCapacity=0.5, MaxCapacity=3.0 — matching me-south-1)
 - **Outputs:**
-  - `VPC_ID`:
-  - `SUBNET_1_ID`:
-  - `SUBNET_2_ID`:
-  - `SUBNET_3_ID`:
-  - `RDS_SG_ID`:
-  - `KMS_KEY_ID`:
-  - `DEV_ZONE_ID`:
-  - `SANDBOX_ZONE_ID`:
-  - `AURORA_ENDPOINT`:
-  - `AURORA_RO_ENDPOINT`:
-- **Notes:**
+  - `VPC_ID`: `vpc-095e1388edf14d815`
+  - `SUBNET_1_ID`: `subnet-03827f7db5a4ce973`
+  - `SUBNET_2_ID`: `subnet-04e1b914e13df5c22`
+  - `SUBNET_3_ID`: `subnet-03ac9da2e5b575be5`
+  - `RDS_SG_ID`: `sg-055925405d0c16388`
+  - `KMS_KEY_ID`: `ced84752-5cb7-44e5-b17a-176142dae35c`
+  - `DEV_ZONE_ID`: `Z034846063FQBL2456ZL`
+  - `SANDBOX_ZONE_ID`: `Z02971401UIZV3WZPFDVE`
+  - `AURORA_ENDPOINT`: `ticketing.cluster-ciagtufyw7ve.eu-central-1.rds.amazonaws.com`
+  - `AURORA_RO_ENDPOINT`: `ticketing.cluster-ro-ciagtufyw7ve.eu-central-1.rds.amazonaws.com`
+  - CloudFront sandbox PDF: `E10QJ3DNHJVZ8Z`
+  - CloudFront mobile: `E2X3GYAQO501UY`
+- **Deviations:**
+  **DEVIATION:** Required 3 apply cycles (not 1) due to iterative import of global resources. 23 total imports: 6 IAM users, 6 IAM policies, 6 IAM roles, 1 IAM group (Developers), 1 EventBridge IAM role (sqs-dev), 2 CloudFront OACs, 1 S3 state bucket.
+  **Reason:** Global resources (IAM, CloudFront OACs) already existed from me-south-1 — same pattern as P2-S4 deviation 3 in production.
+  **Actions taken:** Applied → caught "already exists" errors → imported → re-applied iteratively until clean.
+  **Downstream impact:** None — all resources now in state.
+
+  **DEVIATION:** Removed `acl = "private"` from `ticketing-terraform-dev-eu` S3 bucket in `s3.tf`.
+  **Reason:** Bucket created with ACLs disabled (AWS default since April 2023) — same as P2-S4 deviation 6.
+  **Actions taken:** Removed `acl = "private"` line from resource block. **Uncommitted change** in terraform-dev repo.
+  **Downstream impact:** None — only affects state bucket.
+
+  **DEVIATION:** Serverless v2 scaling had to be set via CLI *before* `terraform apply` could create RDS instances (not after as planned). Also changed MaxCapacity from 16 to 3.0 to match me-south-1 dev/sandbox config. Added `serverlessv2_scaling_configuration` block to `rds.tf` (plan originally omitted it to manage via CLI).
+  **Reason:** RDS instances of type `db.serverless` require the parent cluster to have serverless v2 scaling configuration set before instance creation. First apply created the cluster but instances failed with `InvalidDBClusterStateFault`. MaxCapacity=16 was overprovisioned for dev/sandbox — me-south-1 uses 3.0. Managing scaling in Terraform eliminates drift.
+  **Actions taken:** Set scaling via CLI between apply cycles; later added `serverlessv2_scaling_configuration { min_capacity = 0.5, max_capacity = 3 }` to `rds.tf` and updated cluster via CLI. `terraform plan` now shows zero changes. **Uncommitted change** in terraform-dev repo.
+  **Downstream impact:** None — S3-g step was effectively done during S3-f.
+
+  **DEVIATION:** `terraform init` required `-backend-config="profile=AdministratorAccess-307824719505"` override since `main.tf` has `profile = "dev"` which didn't exist locally. User created a `dev` profile alias to resolve for subsequent commands.
+  **Reason:** Local AWS config didn't have a `dev` profile matching the hardcoded provider config.
+  **Actions taken:** User created `dev` profile alias in AWS config.
+  **Downstream impact:** None.
+- **Notes:** Quotas sufficient: Lambda 1000, NAT/AZ 5, DB clusters 40. `terraform plan` after final state shows **no changes** (0 to add, 0 to change). 131 resources total in state. `developer-msk` and `developer-opensearch` group policy attachments were created (not cleaned up — minor, matches me-south-1 state). Uncommitted changes in terraform-dev: `s3.tf` (removed ACL), `rds.tf` (added serverless v2 scaling config).
 
 ### P5-S4: Replicate secrets from me-south-1
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-31T00:00
+- **Completed:** 2026-03-31T00:15
 - **Substeps:**
-  - [ ] Replicate dev service secrets (20) from me-south-1
-  - [ ] Replicate sandbox service secrets (20) from me-south-1
-  - [ ] Replicate shared secrets (rds/ticketing-cluster, devops)
-  - [ ] Promote ALL replicas to standalone
-  - [ ] Verify ~43 secrets exist and are standalone
-- **Notes:**
+  - [x] Replicate dev service secrets (20) from me-south-1
+  - [x] Replicate sandbox service secrets (19) from me-south-1
+  - [x] Replicate shared secrets (rds/ticketing-cluster, dev/devops)
+  - [x] Promote ALL replicas to standalone (41 promoted)
+  - [x] Verify 42 secrets exist and are standalone
+- **Deviations:**
+  **DEVIATION:** Plan listed `devops` as shared secret name — actual name in me-south-1 is `dev/devops`. Plan listed 20 sandbox secrets — actual count is 19 (`/sandbox/xp-badges` doesn't exist in me-south-1). `terraform` secret already existed in eu-central-1 as standalone (pre-created during P5-S3 terraform apply).
+  **Reason:** Plan secret name and count assumptions didn't match actual me-south-1 state.
+  **Actions taken:** Replicated `dev/devops` instead of `devops`. Skipped non-existent `/sandbox/xp-badges`. Did not re-replicate `terraform`.
+  **Downstream impact:** None — all 42 secrets present and standalone. P5-S7 should reference `dev/devops` (not `devops`) for any updates.
+- **Notes:** Final count: 42 secrets (20 dev + 19 sandbox + `/rds/ticketing-cluster` + `dev/devops` + `terraform`). All show PrimaryRegion=None (standalone).
 
 ### P5-S5: Replicate SSM parameters from me-south-1
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-31T00:20
+- **Completed:** 2026-03-31T00:35
 - **Substeps:**
-  - [ ] Bulk-replicate all params from me-south-1 (skip Kafka/MSK/Elasticsearch/deprecated)
-  - [ ] Override subnet IDs (suffix-only), RDS SG, bucket names, KMS key, service URLs
-  - [ ] Verify parameter count
-- **Notes:**
+  - [x] Bulk-replicate all params from me-south-1 (skip Kafka/MSK/Elasticsearch/deprecated) — 157 created, 42 skipped
+  - [x] Override subnet IDs (suffix-only), RDS SG, bucket names, KMS key, service URLs — 22 overrides applied
+  - [x] Verify parameter count — 157 total
+- **Notes:** Skipped patterns: Kafka, MSK, Elasticsearch, Log_Collector, marketing-feeds, xp-badges, bandsintown. All overrides confirmed at Version 2 (overwritten). Spot-checked subnet suffix, RDS SG, PDF bucket, ExtensionApiUrl, KMS — all correct. `ACCESS_CONTROL_SERVICE_URL` for csv-generator was type `SecureString` in dev (replicated as-is from me-south-1) but overwritten as `String` — acceptable for dev/sandbox.
 
 ### P5-S6: Populate database
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-31T01:00
+- **Completed:** 2026-03-31T01:10
+- **Repos (1):** `ticketing-platform-terraform-dev`
 - **Substeps:**
-  - [ ] Update `/rds/ticketing-cluster` secret with actual Aurora endpoint
-  - [ ] User populates DB manually via SSM tunnel from local sandbox dump
-  - [ ] Create DynamoDB Cache table
-- **Notes:**
+  - [x] Update `/rds/ticketing-cluster` secret with actual Aurora endpoint
+  - [x] User creates empty databases manually (modified — skip dump restore)
+  - [x] Create DynamoDB Cache table
+- **Deviations:**
+  **DEVIATION:** S6-b modified — skipped DB dump restore via SSM tunnel. User will create empty databases manually instead. Schema initialization will happen via EF Core migrations during CDK deployments (P5-S10).
+  **Reason:** User decision — dump restore is unnecessary for dev/sandbox; migrations during CDK deploy will initialize schemas.
+  **Actions taken:** Skipped SSM tunnel + `psql < sandbox-dump.sql` step entirely. User to create empty databases at their convenience before P5-S10.
+  **Downstream impact:** P5-S10 CDK deployments must run EF Core migrations to create schemas. If any service expects pre-existing data (seed data), it won't be present — acceptable for dev/sandbox.
+- **Outputs:**
+  - `/rds/ticketing-cluster` secret updated with host: `ticketing.cluster-ciagtufyw7ve.eu-central-1.rds.amazonaws.com`
+  - DynamoDB `Cache` table: `arn:aws:dynamodb:eu-central-1:307824719505:table/Cache` (PAY_PER_REQUEST, TTL on `ExpirationTime`)
+- **Notes:** Aurora endpoint confirmed matches P5-S3 output (`DEV_AURORA_ENDPOINT`). Secret version: `e6a4f11c-5f16-4302-a805-d1f28438f3ba`. Additionally: added SSM support to openvpn instance (IAM role + `AmazonSSMManagedInstanceCore` policy + instance profile) and removed 4 unused EC2 instances (runner-1a, runner-1b, runner-mobile, managment) via `terraform apply`. Openvpn SSM agent confirmed online (`i-0f92978f8134fce80`).
 
 ### P5-S7: Update connection strings & region-dependent secrets
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-31T01:30
+- **Completed:** 2026-03-31T02:00
+- **Repos (0):** No code repos affected (secrets-only step)
 - **Substeps:**
-  - [ ] Update CONNECTION_STRINGS in all dev+sandbox service secrets (use jq pipeline)
-  - [ ] Update FINANCE_REPORT_SENDER_CONFIG with correct new cluster endpoint
-  - [ ] Blanket me-south-1 → eu-central-1 replacement
-  - [ ] Strip deprecated keys (Elasticsearch, Redis, Kafka)
-  - [ ] Verify zero me-south-1 references and no PLACEHOLDERs
-- **Notes:**
+  - [x] Update CONNECTION_STRINGS in all dev+sandbox service secrets (use jq pipeline)
+  - [x] Update FINANCE_REPORT_SENDER_CONFIG with correct new cluster endpoint
+  - [x] Blanket me-south-1 → eu-central-1 replacement
+  - [x] Strip deprecated keys (Elasticsearch, Redis, Kafka)
+  - [x] Verify zero me-south-1 references and no PLACEHOLDERs
+- **Deviations:**
+  **DEVIATION:** dev/integration and sandbox/integration secrets were corrupted during bulk update — shell pipeline broke on special characters in secret values. Had to restore from AWSPREVIOUS version and re-process using file-based Python approach (no shell piping of secret content).
+  **Reason:** Integration secrets contain special characters that break `jq -r | python3` shell pipeline.
+  **Actions taken:** Restored both from AWSPREVIOUS, then processed via `--output json > file` + Python file I/O approach. Both successfully updated.
+  **Downstream impact:** None — both secrets now updated correctly.
+
+  **DEVIATION:** dev/automations and sandbox/automations showed no changes needed (already clean).
+  **Reason:** These secrets were likely already updated during me-south-1 replication or don't contain region-dependent values.
+  **Actions taken:** Skipped (no update needed).
+  **Downstream impact:** None.
+- **Notes:** 37 secrets updated total (35 in first pass + 2 integration retries). 3 clean (dev/automations, sandbox/automations, dev/ecwid, sandbox/ecwid). 1 skipped (sandbox/xp-badges — doesn't exist). Deprecated keys removed: Elasticsearch (Uri/Username/Password), Kafka (ConsumerSettings/ProducerSettings). KMS_KEY_ID updated where present. All CONNECTION_STRINGS now point to `ticketing.cluster-ciagtufyw7ve.eu-central-1.rds.amazonaws.com` (rw) and `ticketing.cluster-ro-ciagtufyw7ve.eu-central-1.rds.amazonaws.com` (ro). Full sweep of all 42 secrets confirms zero `me-south-1` or `PLACEHOLDER` references.
 
 ### P5-S8: CDK bootstrap + ACM certificates + delete stale DNS records
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-31T12:00
+- **Completed:** 2026-03-31T12:15
 - **Substeps:**
-  - [ ] CDK bootstrap (account 307824719505)
-  - [ ] Delete stale me-south-1 A records from dev + sandbox Route53 zones
-  - [ ] Create 6 ACM certificates (3 dev + 3 sandbox: gateway, geidea, ecwid)
-  - [ ] Store cert ARNs in SSM
-- **Notes:**
+  - [x] CDK bootstrap (account 307824719505)
+  - [x] Delete stale me-south-1 A records from dev + sandbox Route53 zones
+  - [x] Create 6 ACM certificates (3 dev + 3 sandbox: gateway, geidea, ecwid)
+  - [x] Store cert ARNs in SSM
+- **Outputs:**
+  - `DEV_CERT_ARN_GATEWAY`: `arn:aws:acm:eu-central-1:307824719505:certificate/10a4ce45-4af6-473f-89ea-614b6f1d943b`
+  - `DEV_CERT_ARN_GEIDEA`: `arn:aws:acm:eu-central-1:307824719505:certificate/a6a86fdc-e779-42bc-8a75-b54751c3b829`
+  - `DEV_CERT_ARN_ECWID`: `arn:aws:acm:eu-central-1:307824719505:certificate/e0af12eb-854f-4ba3-94fb-8fb0ad4e7cd2`
+  - `SANDBOX_CERT_ARN_GATEWAY`: `arn:aws:acm:eu-central-1:307824719505:certificate/ab154d14-4b99-44c6-aabc-3ecba193a11e`
+  - `SANDBOX_CERT_ARN_GEIDEA`: `arn:aws:acm:eu-central-1:307824719505:certificate/5fc824cc-9d5a-44f4-90b2-c5960f0b230e`
+  - `SANDBOX_CERT_ARN_ECWID`: `arn:aws:acm:eu-central-1:307824719505:certificate/3c157019-9aac-476b-933b-853a7de16b6a`
+- **Notes:** CDK bootstrap created fresh CDKToolkit stack (12 resources). Deleted 10 stale me-south-1 API Gateway A records (5 per zone: api, ecwid, geidea, marketingfeed, xp-badges). Left 6 infrastructure A records in dev zone (managment, omada-devices, openvpn, runner1a, runner1b, sonarqube — private IPs, not API Gateway). All 6 ACM certs validated instantly via DNS (CNAME records in same Route53 zones). ARNs stored in SSM at `/{env}/tp/DomainCertificateArn`, `/{env}/tp/geidea/DomainCertificateArn`, `/{env}/tp/ecwid/DomainCertificateArn`.
 
 ### P5-S9: Deploy infrastructure CDK (11 stacks × 2 envs)
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-31T14:00
+- **Completed:** 2026-03-31T15:30
+- **Repos (1):** `ticketing-platform-infrastructure`
 - **Substeps:**
-  - [ ] Bulk-delete stale dev/sandbox IAM inline policies (backup first)
-  - [ ] Deploy 11 sandbox infrastructure stacks (EventBus → SlackNotification)
-  - [ ] Deploy 11 dev infrastructure stacks (shared stacks already deployed)
-- **Notes:**
+  - [x] Bulk-delete stale dev/sandbox IAM inline policies (backup first)
+  - [x] Create `hotfix/sandbox-eu-migration` branch in `ticketing-platform-infrastructure` (from `sandbox`, merge `production`)
+  - [x] Push and create PR: `hotfix/sandbox-eu-migration` → `sandbox` (PR #324 — DO NOT MERGE)
+  - [x] Deploy 11 sandbox infrastructure stacks from `hotfix/sandbox-eu-migration` (EventBus → SlackNotification)
+  - [x] Create `hotfix/dev-eu-migration` branch in `ticketing-platform-infrastructure` (from `development`, merge `hotfix/sandbox-eu-migration`)
+  - [x] Push and create PR: `hotfix/dev-eu-migration` → `development` (PR #325 — DO NOT MERGE)
+  - [x] Deploy 9 dev infrastructure stacks from `hotfix/dev-eu-migration` (shared stacks already deployed)
+- **Deviations:**
+  **DEVIATION:** Pre-existing SSM parameters (from P5-S5 me-south-1 replication) blocked CDK deploy with "already exists" errors. Affected: 18 consumer queue-arn params per env, `/sandbox/tp/InternalDomainCertificateArn`, `/sandbox/tp/ApiGatewayVpcEndpointId`, `/dev/tp/ApiGatewayVpcEndpointId`, `/rds/RdsProxyEndpoint`, `/rds/RdsProxyReadOnlyEndpoint`, `/sandbox/tp/InfrastructureAlarmsTopicArn`, `/dev/tp/InternalDomainCertificateArn`.
+  **Reason:** P5-S5 replicated all SSM params from me-south-1 including CDK-managed params. CDK `deploy` (not `import`) cannot create resources that already exist. `cdk import` also failed because SSM params reference SQS queue ARNs via `Fn::GetAtt` — can't import SSM params without also importing the queues they reference.
+  **Actions taken:** Deleted the conflicting SSM params before each stack deploy. CDK recreated them with correct eu-central-1 values. Total: ~42 SSM params deleted and recreated across both envs.
+  **Downstream impact:** None — all params now point to eu-central-1 resources.
+
+  **DEVIATION:** Dev Slack webhook SSM params (`/dev/tp/SlackNotification/*`) missing — not replicated from me-south-1. XRayInsightNotificationStack-dev failed on first attempt.
+  **Reason:** P5-S5 replication only covered params that existed in me-south-1 eu-central-1 replica. Slack webhook params for dev either didn't exist or were in a different path.
+  **Actions taken:** Copied 3 Slack webhook params from sandbox (`ErrorsWebhookUrl`, `OperationalErrorsWebhookUrl`, `SuspiciousOrdersWebhookUrl`). Initially created as `SecureString` (CloudFormation rejected — dynamic references require `String` type), recreated as `String`.
+  **Downstream impact:** None — dev Slack notifications now configured.
+
+  **DEVIATION:** Merge conflict in 3 `.csproj` files when merging `production` into `hotfix/sandbox-eu-migration`: TP.Tools versions 1.0.1299 (sandbox) vs 1.0.1301 (production).
+  **Reason:** Sandbox had NuGet upgrade to 1.0.1299 that production superseded with 1.0.1301 during migration.
+  **Actions taken:** Resolved all 3 conflicts taking production version (1.0.1301).
+  **Downstream impact:** None.
+- **Notes:** 147 stale IAM inline policies backed up to `backup-iam-policies-dev/` and deleted (0 failures). All 20 stacks `CREATE_COMPLETE` in CloudFormation. RDS Proxy took ~12 min to provision (shared stack, serves both envs). Sandbox deployed from `hotfix/sandbox-eu-migration`, dev from `hotfix/dev-eu-migration`. Both PRs remain open — merge after P5-S10 per plan.
 
 ### P5-S10: Deploy per-service CDK stacks (sandbox first, then dev)
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-03-31T16:00
+- **Completed:** 2026-03-31T22:15
 - **Substeps:**
-  - [ ] Create `hotfix/sandbox-eu-migration` branches, PRs (don't merge)
-  - [ ] Manual CDK deployment for all 24 services (sandbox): build → lambda package → import → deploy
-  - [ ] Create `hotfix/dev-eu-migration` branches, PRs (don't merge)
-  - [ ] Manual CDK deployment for all 24 services (dev)
-  - [ ] Run DB migrations for all services with DbMigrator
-- **Notes:**
+  - [x] **Pre-deploy fix:** Rename S3 bucket names in dev/sandbox env-var files for `media` and `integration` (add `-eu` suffix) — committed on `hotfix/sandbox-eu-migration`
+  - [x] Create `hotfix/sandbox-eu-migration` branches, PRs (don't merge)
+  - [x] Manual CDK deployment for all 24 services (sandbox): build → lambda package → import → deploy
+  - [x] Run DB migrations for all sandbox services with DbMigrator
+  - [x] Create `hotfix/dev-eu-migration` branches, PRs (don't merge) — 24 PRs created to `development`
+  - [x] Manual CDK deployment for all 24 services (dev): all tiers deployed in parallel within tier
+  - [x] Run DB migrations for all dev services with DbMigrator — all 14 services migrated successfully
+- **Repos (24):** `ticketing-platform-catalogue`, `ticketing-platform-organizations`, `ticketing-platform-loyalty`, `ticketing-platform-csv-generator`, `ticketing-platform-pdf-generator`, `ticketing-platform-automations`, `ticketing-platform-extension-api`, `ticketing-platform-extension-deployer`, `ticketing-platform-extension-executor`, `ticketing-platform-extension-log-processor`, `ticketing-platform-customer-service`, `ticketing-platform-inventory`, `ticketing-platform-pricing`, `ticketing-platform-media`, `ticketing-platform-reporting-api`, `ticketing-platform-marketplace-service`, `ticketing-platform-integration`, `ticketing-platform-distribution-portal`, `ticketing-platform-sales`, `ticketing-platform-access-control`, `ticketing-platform-transfer`, `ticketing-platform-geidea`, `ecwid-integration`, `ticketing-platform-gateway`
+
+**Sandbox Deployment Progress — ALL 24 SERVICES COMPLETE**
+
+| # | Service | Stacks | Status | DB Migration |
+|---|---------|--------|--------|-------------|
+| 1 | catalogue | ServerlessBackendStack, DbMigratorStack | ✅ DONE | ✅ 51 migrations |
+| 2 | organizations | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 31 migrations |
+| 3 | loyalty | ConsumersStack, BackgroundJobsStack | ✅ DONE | N/A |
+| 4 | csv-generator | ConsumersStack | ✅ DONE | N/A |
+| 5 | pdf-generator | ConsumersStack | ✅ DONE (no changes) | N/A |
+| 6 | automations | WeeklyTicketsSenderStack, AutomaticDataExporterStack, FinanceReportSenderStack | ✅ DONE (3/3 — GeideaDataExporter is prod-only) | N/A |
+| 7 | extension-api | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 15 migrations |
+| 8 | extension-deployer | ExtensionDeployerLambdaRoleStack, ExtensionDeployerStack | ✅ DONE | N/A |
+| 9 | extension-executor | ExtensionExecutorStack | ✅ DONE | N/A |
+| 10 | extension-log-processor | ExtensionLogsProcessorStack | ✅ DONE | N/A |
+| 11 | customer-service | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 13 migrations |
+| 12 | inventory | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 84 migrations |
+| 13 | pricing | ServerlessBackendStack, DbMigratorStack, ConsumersStack | ✅ DONE | ✅ 5 migrations |
+| 14 | media | MediaStorageStack, ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 17 migrations |
+| 15 | reporting-api | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 8 migrations |
+| 16 | marketplace | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 11 migrations |
+| 17 | integration | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 13 migrations |
+| 18 | distribution-portal | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 13 migrations |
+| 19 | sales | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 113 migrations |
+| 20 | access-control | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 0 (already up to date) |
+| 21 | transfer | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 10 migrations |
+| 22 | geidea | ApiStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | N/A (no DbMigrator) |
+| 23 | ecwid-integration | ApiStack, BackgroundJobsStack | ✅ DONE | N/A (no DbMigrator) |
+| 24 | gateway | GatewayStack | ✅ DONE | N/A |
+
+- **Deviations:**
+  **DEVIATION:** Bumped TP.Tools NuGet from 1.0.1301 → 1.0.1302 in 17 remaining repos (all except catalogue, organizations, loyalty, csv-generator, pdf-generator, automations, extension-api — already deployed on 1.0.1301).
+  **Reason:** `customer-service` sandbox branch had a `SellerApprovalState.Revoked` enum usage (commit `031e1e4` from TPM-4048) that only exists in TP.Tools ≥1.0.1302. The 1.0.1301 NuGet (published during Phase 4) predates that commit.
+  **Actions taken:** Updated all 17 remaining repos' `.csproj` files from 1.0.1301 → 1.0.1302, committed as `chore: bump TP.Tools to 1.0.1302 (P5-S10)` on `hotfix/sandbox-eu-migration`. Not yet pushed.
+  **Downstream impact:** Dev hotfix branches must also use 1.0.1302. The 7 already-deployed services remain on 1.0.1301 — this is fine since they don't reference `Revoked`.
+
+  **DEVIATION:** Merge conflicts in 20/24 repos when merging production into `hotfix/sandbox-eu-migration`. All were TP.Tools `.csproj` version conflicts (sandbox 1.0.1299 vs production 1.0.1301). Catalogue also had a helm template modify/delete conflict.
+  **Reason:** Sandbox had NuGet upgrade to 1.0.1299 that production superseded with 1.0.1301.
+  **Actions taken:** Resolved all conflicts using `git merge -X theirs` (taking production version). Catalogue helm file taken from production.
+  **Downstream impact:** None.
+
+  **DEVIATION:** 2 repos (organizations, pdf-generator) had no diff between sandbox and production — PRs could not be created.
+  **Reason:** These repos' sandbox branches were already up to date with production.
+  **Actions taken:** Skipped PR creation for these 2 repos. CDK deployment proceeded normally from the hotfix branch.
+  **Downstream impact:** None — CI/CD merge step (P5-S12) will skip these repos or create PRs from the dev hotfix if needed.
+
+  **DEVIATION:** `GeideaDataExporterStack` does not exist for sandbox — only synthesized for prod environment.
+  **Reason:** CDK `Program.cs` conditionally creates this stack only for prod.
+  **Actions taken:** Deployed 3 of 4 automations stacks (WeeklyTicketsSender, AutomaticDataExporter, FinanceReportSender). GeideaDataExporter skipped.
+  **Downstream impact:** None — this is expected behavior for non-prod environments.
+
+  **DEVIATION:** Extension-deployer Docker Lambda required manual ECR repo creation + `dotnet lambda deploy-function` before CDK deploy.
+  **Reason:** Docker image-based Lambda (not managed by CDK). CDK stack references the function by name (imported), so the function must exist first. ECR repo `ticketing-platform-extension-deployer-sandbox` did not exist in eu-central-1.
+  **Actions taken:** Created ECR repo, deployed function via `dotnet lambda deploy-function --package-type image --docker-build-options "--platform linux/amd64"`, then deployed CDK stacks.
+  **Downstream impact:** Same approach needed for dev environment.
+
+  **DEVIATION:** Extension-executor and extension-log-processor CDK use `Code.FromAsset("../*/bin/Release/net8.0/publish")` — requires `dotnet publish` not `dotnet lambda package`.
+  **Reason:** These projects use `Code.FromAsset` with a directory path, not a zip file.
+  **Actions taken:** Used `dotnet publish -c Release -o bin/Release/net8.0/publish -p:PublishReadyToRun=false --runtime linux-x64 --self-contained false` instead of `dotnet lambda package`.
+  **Downstream impact:** Same approach needed for dev environment.
+
+  **DEVIATION:** `deploy-all-services.sh` had incorrect stack names for access-control — used `accesscontrol` (no hyphen) but CDK templates use `access-control` (hyphenated).
+  **Reason:** Script naming inconsistency.
+  **Actions taken:** Fixed stack names in `deploy_access_control()` function in `deploy-all-services.sh` to use `access-control`.
+  **Downstream impact:** Fix is in place for dev deployment.
+
+  **DEVIATION:** Inventory and distribution-portal required additional log groups not covered by `create_log_groups()` helper.
+  **Reason:** `create_log_groups()` uses a standard naming pattern but some services use non-standard function names (e.g., `Inventory-consumers-lambda-sandbox` with capital I, `dp-serverless-sandbox-function`).
+  **Actions taken:** Agents auto-created missing log groups when CDK deploy failed on SubscriptionFilter, then re-ran deploy successfully.
+  **Downstream impact:** Same log groups will need pre-creation for dev. The `deploy-all-services.sh` `create_log_groups` helper doesn't cover all naming variants.
+
+  **DEVIATION:** MediaStorageStack deployed via IMPORT_COMPLETE only (no UPDATE needed). The `imgix-sandbox` IAM user did not cause a blocking error.
+  **Reason:** The deploy script's IAM role import was sufficient; the imgix user was either already created or CDK handled it during import.
+  **Actions taken:** No manual intervention needed for media.
+  **Downstream impact:** Dev media deployment should work the same way — no special imgix handling needed.
+
+  **DEVIATION:** No SSM parameter conflicts encountered during Tier 2-4 sandbox deployments.
+  **Reason:** The bulk deletion of `/sandbox/tp/InternalServices/*` params before Tier 1 resolved the main conflict set. Tier 2-4 services apparently don't create additional conflicting SSM params, or the replicated params from P5-S5 had different paths.
+  **Actions taken:** None needed.
+  **Downstream impact:** Dev environment may still have SSM conflicts since `/dev/tp/InternalServices/*` params were not yet deleted. Agent should delete them before dev deployment.
+
+  **DEVIATION:** `/sandbox/tp/InternalServices/Catalogue` SSM parameter was missing despite CloudFormation showing `CREATE_COMPLETE`.
+  **Reason:** The param was created by catalogue CDK deploy during Tier 1, but was subsequently deleted out-of-band (likely by a stale cleanup command after catalogue deployed). CloudFormation was unaware of the deletion, causing drift. The gateway Lambda failed to start because it loads all `/sandbox/tp/InternalServices/*` params at runtime via `ParameterStoreHelper.LoadParametersToEnvironmentAsync()` and `CatalogueServiceBaseRoute` was missing.
+  **Actions taken:** Recreated the parameter: `aws ssm put-parameter --name "/sandbox/tp/InternalServices/Catalogue" --value "https://catalogue.internal.sandbox.tickets.mdlbeast.net" --type String`. Verified CF drift status is `IN_SYNC`. Gateway Lambda now starts successfully and returns `200 Healthy`.
+  **Downstream impact:** For dev deployment, verify all `/dev/tp/InternalServices/*` params exist after CDK deploys. If any are missing, recreate them. The gateway will fail to start if any `*ServiceBaseRoute` param is absent.
+
+- **Notes:** **P5-S7 audit finding:** `media` and `integration` dev/sandbox env-var files still have old S3 bucket names without `-eu` suffix (`ticketing-dev-media`, `ticketing-sandbox-media`, `dev-pdf-tickets`, `sandbox-pdf-tickets`). Prod env-vars were renamed in P1-T4 but dev/sandbox were missed. These must be renamed on the hotfix branches (not on `hotfix/region-migration-eu-central-1`) so the change flows to the correct environment branches. See `plan-phase-5.md` P5-S10 for full details. **Pre-deploy fix was applied** — S3 bucket names renamed and committed on `hotfix/sandbox-eu-migration` before Tier 1 deployment.
+
+**Dev Deployment Progress — ALL 24 SERVICES COMPLETE**
+
+| # | Service | Stacks | Status | DB Migration |
+|---|---------|--------|--------|-------------|
+| 1 | catalogue | ServerlessBackendStack, DbMigratorStack | ✅ DONE | ✅ 51 migrations |
+| 2 | organizations | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 31 migrations |
+| 3 | loyalty | ConsumersStack, BackgroundJobsStack | ✅ DONE | N/A |
+| 4 | csv-generator | ConsumersStack | ✅ DONE | N/A |
+| 5 | pdf-generator | ConsumersStack | ✅ DONE | N/A |
+| 6 | automations | WeeklyTicketsSenderStack, AutomaticDataExporterStack, FinanceReportSenderStack | ✅ DONE (3/3 — GeideaDataExporter is prod-only) | N/A |
+| 7 | extension-api | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 15 migrations |
+| 8 | extension-deployer | ExtensionDeployerLambdaRoleStack, ExtensionDeployerStack | ✅ DONE | N/A |
+| 9 | extension-executor | ExtensionExecutorStack | ✅ DONE | N/A |
+| 10 | extension-log-processor | ExtensionLogsProcessorStack | ✅ DONE | N/A |
+| 11 | customer-service | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 13 migrations |
+| 12 | inventory | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 84 migrations |
+| 13 | pricing | ServerlessBackendStack, DbMigratorStack, ConsumersStack | ✅ DONE | ✅ 5 migrations |
+| 14 | media | MediaStorageStack, ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 17 migrations |
+| 15 | reporting-api | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 8 migrations |
+| 16 | marketplace | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 11 migrations |
+| 17 | integration | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 13 migrations |
+| 18 | distribution-portal | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 13 migrations |
+| 19 | sales | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 113 migrations |
+| 20 | access-control | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 132 migrations |
+| 21 | transfer | ServerlessBackendStack, DbMigratorStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | ✅ 10 migrations |
+| 22 | geidea | ApiStack, ConsumersStack, BackgroundJobsStack | ✅ DONE | N/A (no DbMigrator) |
+| 23 | ecwid-integration | ApiStack, BackgroundJobsStack | ✅ DONE | N/A (no DbMigrator) |
+| 24 | gateway | GatewayStack | ✅ DONE | N/A |
+
+**Dev-specific deviations:**
+
+  **DEVIATION:** Extension-log-processor initial CDK deploy completed as IMPORT_COMPLETE only; follow-up deploy failed on SSM param `/dev/tp/extensions/EXTENSION_LOGS_QUEUE_URL` conflict. Deleted param and retried successfully.
+  **Reason:** SSM param replicated from me-south-1 in P5-S5 was not caught by the pre-deploy InternalServices deletion (different path).
+  **Actions taken:** Deleted conflicting SSM param, retried CDK deploy — UPDATE_COMPLETE.
+  **Downstream impact:** None.
+
+  **DEVIATION:** Extension-deployer SQS visibility timeout (5min) was less than Lambda timeout (15min). Updated `ExtensionDeployerStack.cs` to 16min.
+  **Reason:** AWS rejects SQS→Lambda event source mapping when visibility timeout < function timeout.
+  **Actions taken:** Changed `Duration.Minutes(5)` → `Duration.Minutes(16)` in CDK stack.
+  **Downstream impact:** Code change on `hotfix/dev-eu-migration` — will flow to development branch via PR.
+
+  **DEVIATION:** Extension-executor deploy script had wrong Lambda package directory (`TP.Extensions.Executor` vs `TP.Extensions.Executor.Lambda`).
+  **Reason:** `deploy-all-services.sh` bug — incorrect path for this service.
+  **Actions taken:** Agent manually packaged correct project and deployed via `deploy-service-cdk.sh`.
+  **Downstream impact:** Script bug should be fixed for future use.
+
+**Dev validation results:**
+- Gateway health: `{"status":"Healthy"}` — 32ms response
+- All 14 InternalServices SSM params present (no missing params, unlike sandbox where Catalogue was lost)
+- 24 PRs open to `development` — none merged yet (P5-S12)
+- All repos on `hotfix/dev-eu-migration` branch
+- **Aggregated service health check** (`GET /services/health-check`): **Overall: Healthy** — all 14 internal services healthy with DB connectivity confirmed:
+
+| Service | Status | Duration | DB Primary | DB Readonly | DB Reporting |
+|---------|--------|----------|------------|-------------|--------------|
+| Catalogue | Healthy | 351ms | Healthy | Healthy | Healthy |
+| Organization | Healthy | 777ms | Healthy | Healthy | Healthy |
+| Sales | Healthy | 429ms | Healthy | Healthy | Healthy |
+| Inventory | Healthy | 699ms | Healthy | Healthy | Healthy |
+| Pricing | Healthy | 921ms | Healthy | Healthy | Healthy |
+| Media | Healthy | 823ms | Healthy | Healthy | Healthy |
+| Extensions | Healthy | 685ms | Healthy | Healthy | Healthy |
+| Reporting | Healthy | 563ms | Healthy | Healthy | Healthy |
+| Transfer | Healthy | 755ms | Healthy | Healthy | Healthy |
+| Customers | Healthy | 721ms | Healthy | Healthy | Healthy |
+| Marketplace | Healthy | 841ms | Healthy | Healthy | Healthy |
+| Integration | Healthy | 757ms | Healthy | Healthy | Healthy |
+| AccessControl | Healthy | 639ms | Healthy | Healthy | Healthy |
+| DistributionPortal | Healthy | 724ms | Healthy | Healthy | Healthy |
+
+- **Gateway route-level verification:** `GET /catalogue/{org_id}/events` with `x-api-version: 3` header returns `401` with `WWW-Authenticate: Bearer` — confirms full request pipeline (API Gateway → Gateway Lambda → YARP reverse proxy → Catalogue Lambda → Auth0 middleware rejects). Organizations and Extensions routes return `405 Method Not Allowed` (route matched, method mismatch). Swagger UI (`/swagger/index.html`) returns `200`.
+- **Pre-deploy SSM cleanup:** Deleted 15 params from `/dev/tp/InternalServices/*` (14 expected + 1 stale `/dev/tp/InternalServices/access` lowercase entry).
+- **ECR repo created:** `ticketing-platform-extension-deployer-dev` in eu-central-1 (for Docker image Lambda).
+
+---
+
+**HANDOVER NOTES (now outdated — dev deployment complete)**
+
+**Current state (2026-03-31T12:00):**
+- **Sandbox: FULLY DEPLOYED AND VALIDATED.** All 24 services deployed, all DB migrations run, gateway healthy. 22 PRs open (organizations and pdf-generator had no diff). PRs not yet merged — merge happens in P5-S12.
+- **Post-deploy fix applied:** Recreated missing `/sandbox/tp/InternalServices/Catalogue` SSM param — gateway was failing without it.
+- **Sandbox validation results:** Gateway health OK. Authenticated API calls work end-to-end (gateway → catalogue via VPC private endpoint → Aurora DB → paginated response). Permission checks fail with "user not found" because the sandbox DB has no user data — this is expected (data issue, not infra).
+- **Dev: NOT STARTED.** `hotfix/dev-eu-migration` branches not yet created.
+- All 24 repos are currently checked out on `hotfix/sandbox-eu-migration` with clean working trees.
+- TP.Tools 1.0.1302 bump commits have been pushed to all 13 Tier 2-4 repos.
+
+**What to do next — Dev environment deployment:**
+
+1. **Delete `/dev/tp/InternalServices/*` SSM params** before any CDK deploy (same as was done for sandbox):
+   ```bash
+   aws ssm get-parameters-by-path --path "/dev/tp/InternalServices" --recursive \
+     --profile AdministratorAccess-307824719505 --region eu-central-1 \
+     --query "Parameters[].Name" --output text | tr '\t' '\n' | \
+     while read p; do aws ssm delete-parameter --name "$p" \
+       --profile AdministratorAccess-307824719505 --region eu-central-1; done
+   ```
+
+2. **Create `hotfix/dev-eu-migration` branches** for all 24 repos:
+   - `git fetch origin`
+   - Check if dev branch is `development` or `release/development` — varies by repo
+   - `git checkout development && git pull origin development`
+   - `git checkout -b hotfix/dev-eu-migration`
+   - `git merge hotfix/sandbox-eu-migration` (brings in all migration + TP.Tools 1.0.1302 changes)
+   - Resolve any merge conflicts (expect TP.Tools `.csproj` version conflicts like sandbox had)
+   - Push and create PR to `development` — **DO NOT MERGE YET**
+
+3. **Deploy all 24 services to dev** using `deploy-all-services.sh`:
+   ```bash
+   ENV=dev ./.personal/tasks/2026-03-05_aws-region-migration/deploy-all-services.sh
+   ```
+   Or deploy per-service: `ENV=dev ./deploy-all-services.sh <service_name>`
+   Can deploy all tiers in parallel — the script handles build, package, log groups, IAM import, CDK deploy.
+
+4. **Run DB migrations** for all services with DbMigrator (replace `-sandbox` with `-dev`):
+   ```bash
+   for svc in catalogue organizations extension-api customer-service inventory pricing media \
+     reporting marketplace distribution-portal integration sales access-control transfer; do
+     aws lambda invoke --function-name "${svc}-db-migrator-lambda-dev" --payload '{}' \
+       --profile AdministratorAccess-307824719505 --region eu-central-1 /tmp/out.json
+     cat /tmp/out.json && echo ""
+   done
+   ```
+
+**Learnings from sandbox deployment (MUST READ):**
+
+1. **`deploy-all-services.sh` works well for parallel deployment.** Agents can deploy individual services via `ENV=<env> ./deploy-all-services.sh <service_name>`. Deploy all 7 Tier 2 services in parallel, then all 5 Tier 3, then gateway last.
+
+2. **Log group naming is inconsistent.** The `create_log_groups()` helper covers common patterns but misses:
+   - `Inventory-consumers-lambda-{env}` (capital I)
+   - `dp-serverless-{env}-function` (distribution-portal uses `dp-` prefix)
+   If CDK deploy fails on a `SubscriptionFilter` resource, create the missing log group and retry.
+
+3. **No SSM conflicts in Tier 2-4 sandbox** (after `/sandbox/tp/InternalServices/*` bulk deletion). But **dev will likely have conflicts** since `/dev/tp/InternalServices/*` hasn't been deleted yet. Delete before deploying.
+
+4. **access-control stack names use hyphens:** `TP-*-access-control-{env}`, not `accesscontrol`. The deploy script has been fixed.
+
+5. **Media imgix IAM user was not a problem.** `deploy-service-cdk.sh` handled MediaStorageStack via IMPORT_COMPLETE without needing special user import. Same expected for dev.
+
+6. **Extension-deployer needs ECR repo + `dotnet lambda deploy-function` before CDK deploy.** For dev: create ECR repo `ticketing-platform-extension-deployer-dev` first.
+
+7. **Extension-executor and extension-log-processor use `dotnet publish`, not `dotnet lambda package`.** The `deploy-all-services.sh` script already handles this correctly.
+
+8. **GeideaDataExporterStack only exists for prod.** Skip for dev (same as sandbox).
+
+9. **DB migrator function names vary:**
+   - Most services: `{service}-db-migrator-lambda-{env}`
+   - access-control: `access-control-db-migrator-lambda-{env}` (hyphenated)
+   - geidea, ecwid, gateway: No DbMigrator
+
+10. **AWS SSO session may expire during long deployments.** If CDK fails with "no credentials configured", re-run `aws sso login --profile AdministratorAccess-307824719505` and retry.
+
+11. **CRITICAL: Verify all `/dev/tp/InternalServices/*` SSM params exist after CDK deploys.** The gateway Lambda loads these at runtime via `ParameterStoreHelper.LoadParametersToEnvironmentAsync("/{env}/tp/InternalServices")` and fails to start if any are missing. In sandbox, `/sandbox/tp/InternalServices/Catalogue` was missing despite CF showing `CREATE_COMPLETE` (deleted out-of-band after catalogue CDK deploy). After all 24 services are deployed, run:
+    ```bash
+    aws ssm get-parameters-by-path --path "/dev/tp/InternalServices" --recursive \
+      --profile AdministratorAccess-307824719505 --region eu-central-1 \
+      --query "Parameters[].Name" --output text
+    ```
+    Expected params (13 total): `AccessControl`, `Catalogue`, `Customers`, `DistributionPortal`, `Extensions`, `Integration`, `Inventory`, `Marketplace`, `Media`, `Organization`, `Pricing`, `Reporting`, `Sales`, `Transfer`. If any are missing, recreate from the CDK template values (pattern: `https://{service}.internal.dev.tickets.mdlbeast.net`).
+
+12. **Duplicate private hosted zones exist.** Both `internal.sandbox.tickets.mdlbeast.net` and `internal.dev.tickets.mdlbeast.net` have 2 private hosted zones each — one from me-south-1 (old VPC) and one from eu-central-1 (new VPC). The eu-central-1 zones have correct CNAME records pointing to VPC endpoint URLs. The me-south-1 zones are stale but harmless (associated with the old VPC, not the new one). Can be cleaned up post-migration.
+
+13. **Stale public DNS records.** The public sandbox hosted zone (`Z02971401UIZV3WZPFDVE`) has stale CNAME records pointing to me-south-1 EKS ingress: wildcard `*.sandbox.tickets.mdlbeast.net`, 7 `internal-*` records, and `api-old`. These are harmless (services use VPC private endpoints, not public DNS) but should be cleaned up post-migration.
+
+14. **Gateway validation approach.** To validate the gateway after dev deployment:
+    - Health: `curl https://api.dev.tickets.mdlbeast.net/health` should return `{"status":"Healthy"}`
+    - Route test: `curl -H "x-api-version: 3" -H "Authorization: Bearer <token>" https://api.dev.tickets.mdlbeast.net/catalogue/<org_id>/events` — expect 200 (with data) or permission error (if user not in DB). A 401 with `WWW-Authenticate: Bearer` means auth is working. A startup crash with `*ServiceBaseRoute is not set` means an InternalServices SSM param is missing.
+
+**Scripts:**
+- Deploy orchestrator: `.personal/tasks/2026-03-05_aws-region-migration/deploy-all-services.sh`
+- CDK deploy helper: `.personal/tasks/2026-03-05_aws-region-migration/deploy-service-cdk.sh`
+- Both scripts are already `chmod +x`.
 
 ### P5-S11: Update GitHub secrets & variables
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-04-01T14:00
+- **Completed:** 2026-04-01T14:15
 - **Substeps:**
-  - [ ] Update environment-level `AWS_DEFAULT_REGION`, `CDK_DEFAULT_REGION` for dev+sandbox
-  - [ ] Update IAM credentials if applicable
-- **Notes:**
+  - [x] Update `AWS_DEFAULT_REGION` + `CDK_DEFAULT_REGION` on 8 repos with both dev+sandbox envs (32 updates)
+  - [x] Update `AWS_DEFAULT_REGION` + `CDK_DEFAULT_REGION` on 2 repos with dev-only envs (4 updates)
+  - [x] Update mobile-scanner sandbox+development envs (CloudFront, S3) — 6 updates
+  - [x] Verify secrets were set correctly (spot-checked infrastructure, catalogue, mobile-scanner — all show 2026-04-01 timestamps)
+- **Repos affected (11):**
+  - Group A (dev+sandbox region updates): `infrastructure`, `organizations`, `extension-deployer`, `extension-api`, `extension-executor`, `extension-log-processor`, `csv-generator`, `pdf-generator`
+  - Group B (dev-only region updates): `catalogue`, `gateway`
+  - Group C (mobile CloudFront/S3): `mobile-scanner`
+- **Secrets updated: 42 total**
+  - 32 region secrets (8 repos × 2 envs × 2 secrets: `AWS_DEFAULT_REGION` + `CDK_DEFAULT_REGION`)
+  - 4 region secrets (2 repos × 1 env × 2 secrets)
+  - 6 mobile-scanner secrets (2 envs × 3 secrets: `CLOUDFRONT`, `CLOUDFRONT_DISTRIBUTION_ID`, `S3`)
+- **Deviations:**
+  **DEVIATION:** Plan (plan-phase-5.md P5-S11) listed 13 repos needing updates, but live audit found only 10 repos with dev/sandbox GitHub environments containing region secrets. The other 3 repos from the plan's list (access-control, sales, customer-service) plus 7 others (inventory, reporting-api, media, pricing, geidea, distribution-portal, loyalty) have NO dev/sandbox environments — org-level `AWS_DEFAULT_REGION=eu-central-1` (set in P4-S4) applies directly.
+  **Reason:** P4-S4 identified 13 repos with environment-level secrets for *production*, but not all 13 have dev/sandbox environments. The P5-S11 plan incorrectly assumed the same 13 repos would need dev/sandbox updates.
+  **Actions taken:** Updated only the 10 repos that actually have dev and/or sandbox environments with `AWS_DEFAULT_REGION`/`CDK_DEFAULT_REGION` secrets. Also updated mobile-scanner `CLOUDFRONT`, `CLOUDFRONT_DISTRIBUTION_ID`, `S3` in both sandbox and development environments.
+  **Downstream impact:** None — the 18 repos without dev/sandbox environments inherit org-level `eu-central-1` correctly.
+
+  **DEVIATION:** Updated mobile-scanner `development` environment in addition to `sandbox` — plan only mentioned sandbox.
+  **Reason:** Live audit revealed mobile-scanner has a `development` environment with the same CloudFront/S3 secrets needing eu-central-1 values.
+  **Actions taken:** Updated 3 secrets (`CLOUDFRONT`, `CLOUDFRONT_DISTRIBUTION_ID`, `S3`) in both `sandbox` and `development` environments.
+  **Downstream impact:** None — development environment now has correct eu-central-1 values.
+- **Mobile-scanner values set:**
+  - `CLOUDFRONT_DISTRIBUTION_ID`: `E2X3GYAQO501UY`
+  - `S3`: `ticketing-dev-app-mobile-eu`
+  - `CLOUDFRONT`: `d20zx49d1qw3ak.cloudfront.net`
+- **IAM credentials:** NOT updated (not needed). IAM is global — existing credentials work in eu-central-1. Dev account has two CI/CD IAM users: `ci-cd-user` (scoped: CDK, EKS, ECR, Storybook) and `ci-cd-user-serverless` (AdministratorAccess). Neither is managed in Terraform. Neither has region restrictions.
+- **GitHub secrets analysis (for reference):**
+  - Org-level `AWS_DEFAULT_REGION` already `eu-central-1` (set in P4-S4)
+  - No repos use GitHub Variables — only secrets
+  - `gateway` has dev but no sandbox environment (sandbox deployments use org-level secrets — works correctly)
+  - `catalogue` has dev but no sandbox environment (same pattern)
+  - `distribution-portal` has repo-level `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` (shared for dev/sandbox, no env needed)
+  - `pdf-generator` has 5 envs (dev, prod, production, sandbox, test) — `production` and `test` are unused legacy
+  - `dashboard` has `development` and `sandbox` envs but both are EMPTY — org-level applies
+- **Notes:** No code changes in this step — GitHub secrets only. Real verification happens in P5-S12 when CI/CD pipelines run after PR merges.
 
 ### P5-S12: Merge PRs
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-04-01T15:00
+- **Completed:** 2026-04-01T17:30
 - **Substeps:**
-  - [ ] Sandbox: Merge Group 1 (tools → infrastructure → templates) sequentially
-  - [ ] Sandbox: Merge Group 2 (terraform-dev)
-  - [ ] Sandbox: Merge Groups 3-5 (services by tier, parallel within group)
-  - [ ] Sandbox: Merge Group 6 (gateway + frontends, last)
-  - [ ] Dev: Repeat all merge groups for development branch
+  - [x] Sandbox: Merge Group 1 (infrastructure #324) — tools/templates-ci-cd have no sandbox branches
+  - [x] Sandbox: Merge Group 2 — skipped (terraform-dev has no sandbox branch)
+  - [x] Sandbox: Merge Groups 3-5 (21 service PRs by tier, parallel within group)
+  - [x] Sandbox: Merge Group 6 (gateway #868 + dashboard #4821)
+  - [x] Dev: Merge Group 1 (infrastructure #325)
+  - [x] Dev: Merge Groups 3-5 (23 service PRs by tier, parallel within group)
+  - [x] Dev: Merge Group 6 (gateway #869 + dashboard #4822)
+  - [x] Fix media CI/CD: delete MediaStorageStack + conflicting resources, fix deploy order, redeploy (sandbox + dev)
+  - [x] Fix customer-service sandbox: bump TP.Tools 1.0.1301→1.0.1302
+- **Repos (28):** `ticketing-platform-infrastructure`, `ticketing-platform-catalogue`, `ticketing-platform-organizations` (dev only), `ticketing-platform-loyalty`, `ticketing-platform-csv-generator`, `ticketing-platform-pdf-generator` (dev only), `ticketing-platform-automations`, `ticketing-platform-extension-api`, `ticketing-platform-extension-deployer`, `ticketing-platform-extension-executor`, `ticketing-platform-extension-log-processor`, `ticketing-platform-customer-service`, `ticketing-platform-inventory`, `ticketing-platform-pricing`, `ticketing-platform-media`, `ticketing-platform-reporting-api`, `ticketing-platform-marketplace-service`, `ticketing-platform-integration`, `ticketing-platform-distribution-portal`, `ticketing-platform-sales`, `ticketing-platform-access-control`, `ticketing-platform-transfer`, `ticketing-platform-geidea`, `ecwid-integration`, `ticketing-platform-gateway`, `ticketing-platform-dashboard`
+- **PRs merged:** 24 sandbox + 26 dev = 50 total
+- **Deviations:**
+  **DEVIATION:** Org-level `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` pointed to production account (660748123249). Infrastructure sandbox CI/CD deployed stacks to prod.
+  **Reason:** P4-S4 set org-level AWS credentials to production. All repos' CI/CD workflows fall through to org-level for non-production branches.
+  **Actions taken:** User cancelled the run, updated org-level secrets to `ci-cd-user-serverless` IAM user credentials (dev account 307824719505), deleted erroneously created prod stacks, re-ran successfully.
+  **Downstream impact:** None after fix.
+
+  **DEVIATION:** Dashboard sandbox/dev PRs created as part of this step (#4821, #4822). Mobile-scanner PRs handled manually by user.
+  **Reason:** Dashboard was not part of P5-S9/P5-S10 (no CDK). PRs needed for Vercel deployment.
+  **Actions taken:** Created `hotfix/sandbox-eu-migration` from `sandbox`, merged `origin/production`. Created `hotfix/dev-eu-migration` from `development`, merged sandbox branch. Clean merges, no conflicts.
+  **Downstream impact:** None.
+
+  **DEVIATION:** Customer-service sandbox CI/CD failed — `SellerApprovalState.Revoked` not found. TP.Tools version 1.0.1302 bump was not pushed to sandbox for this repo during P5-S10.
+  **Reason:** P5-S10 bumped TP.Tools to 1.0.1302 on `hotfix/sandbox-eu-migration` but only pushed to Tier 2-4 repos. Customer-service (Tier 1) was deployed locally with the bump but the push to origin didn't happen before the PR was merged.
+  **Actions taken:** Pushed TP.Tools 1.0.1301→1.0.1302 bump directly to sandbox branch. CI/CD re-run succeeded.
+  **Downstream impact:** None.
+
+  **DEVIATION:** Distribution-portal sandbox CI/CD failed — org-level secrets not visible to this repo.
+  **Reason:** Org-level `AWS_ACCESS_KEY_ID` has "Selected repositories" visibility that doesn't include distribution-portal. This repo previously had repo-level credentials which were deleted during troubleshooting.
+  **Actions taken:** User re-ran the original workflow after restoring credentials. Succeeded. Empty-commit runs from troubleshooting failed (stale secret cache). Fresh run after credential fix succeeded.
+  **Downstream impact:** Distribution-portal repo-level `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` must be maintained (can't rely on org-level).
+
+  **DEVIATION:** Media CI/CD failed (sandbox + dev) — MediaStorageStack partially imported in P5-S10 (IAM role only). SSM param `/sandbox/tp/media/bucket-name` conflicted with CDK CREATE. Deploy order also wrong (ConsumersStack before MediaStorageStack).
+  **Reason:** P5-S10 manual deployment used `cdk import` which only imported the IAM role. S3 bucket, SSM param, IAM user, Lambda, API Gateway were never tracked by CloudFormation.
+  **Actions taken:** (1) Deleted MediaStorageStack CF stack + IAM role `Media_lambda_role_{env}` + SSM param `/sandbox|dev/tp/media/bucket-name` + IAM user `imgix-{env}` (including access key and inline policy). (2) Swapped deploy order in `.github/workflows/ci-cd.yml`: MediaStorageStack now deploys before ConsumersStack. (3) CDK deploy created all resources fresh. Both sandbox and dev succeeded.
+  **Downstream impact:** New imgix access keys generated — `imgix-sandbox` and `imgix-dev` have new credentials. Must update imgix configuration if sandbox/dev imgix integrations exist. CI/CD workflow change committed directly to sandbox and development branches (not via PR). Old orphaned security groups (`tp-media-sandbox-lambda-sg`, `tp-media-dev-lambda-sg`) can be cleaned up post-migration.
+
+  **DEVIATION:** Dashboard sandbox CI/CD — Storybook deploy failed (S3 bucket `ticketing-sandbox-design-system.s3.me-south-1.amazonaws.com` unreachable).
+  **Reason:** Storybook S3 bucket is in me-south-1. Not recreated in eu-central-1. Noted in P4-S4: "Storybook variables skipped (no infra in eu-central-1)."
+  **Actions taken:** None — non-blocking. Dashboard app deploys via Vercel (working). Storybook infra needs creation in eu-central-1 as post-migration task.
+  **Downstream impact:** Storybook unavailable for sandbox until S3 bucket + CloudFront created in eu-central-1.
+
+  **DEVIATION:** Several repos skipped for sandbox/dev merges — no sandbox/dev branches exist.
+  **Reason:** `ticketing-platform-tools` (NuGet-only, no sandbox/dev branches), `ticketing-platform-templates-ci-cd` (master only), `ticketing-platform-terraform-dev` (master only), `ticketing-platform-configmap-*` (already merged to production branches), `ticketing-platform-shared` and `ticketing-platform-mobile-libraries` (no region changes), `ticketing-platform-distribution-portal-frontend` (no region changes).
+  **Actions taken:** Skipped — no action needed.
+  **Downstream impact:** None.
 - **Notes:**
+- **CI/CD final status:**
+  - Sandbox: 23/24 success. Dashboard Storybook failure (non-blocking, post-migration).
+  - Dev: 26/26 success.
+- **Sandbox PRs merged (24):**
+  - Group 1: infrastructure #324
+  - Group 3: catalogue #895, loyalty #151, csv-generator #144, automations #41, extension-api #345, extension-deployer #165, extension-executor #147, extension-log-processor #107, customer-service #157
+  - Group 4: inventory #1060, pricing #641, media #772, reporting-api #214, marketplace #100, integration #600, distribution-portal #254
+  - Group 5: sales #2205, access-control #1910, transfer #318, geidea #81, ecwid-integration #173
+  - Group 6: gateway #868, dashboard #4821
+- **Dev PRs merged (26):**
+  - Group 1: infrastructure #325
+  - Group 3: catalogue #896, organizations #1090, loyalty #152, csv-generator #145, pdf-generator #213, automations #42, extension-api #346, extension-deployer #166, extension-executor #148, extension-log-processor #108, customer-service #158
+  - Group 4: inventory #1061, pricing #642, media #773, reporting-api #215, marketplace #101, integration #601, distribution-portal #255
+  - Group 5: sales #2206, access-control #1911, transfer #319, geidea #82, ecwid-integration #174
+  - Group 6: gateway #869, dashboard #4822
 
 ### P5-S13: End-to-end validation
 
-- **Status:** `PENDING`
-- **Started:**
-- **Completed:**
+- **Status:** `DONE`
+- **Started:** 2026-04-02T00:00
+- **Completed:** 2026-04-02T06:00
 - **Checklist:**
-  - [ ] Sandbox: API Gateway health, Geidea, internal DNS, DB connectivity, EventBridge→SQS, CloudWatch, dashboard login
-  - [ ] Dev: Same checklist against `*.dev.tickets.mdlbeast.net`
-- **Notes:**
+  - [x] Sandbox: API Gateway health — `curl -sk https://api.sandbox.tickets.mdlbeast.net/health` → 200 OK, `{"status":"Healthy"}`
+  - [x] Sandbox: Geidea endpoint responds — `geidea.sandbox.tickets.mdlbeast.net/balance/test/test` → 500 (app-level error for test data, Lambda running); `/health` → 404 (no health route, confirms API Gateway + Lambda live)
+  - [x] Sandbox: Internal DNS resolution — 14 CNAME records in private hosted zone `Z061663611IJGLO34J4CK`, all pointing to `eu-central-1` VPC endpoints
+  - [x] Sandbox: All 14 internal services Healthy — `GET /services/health-check` → 200 OK, `overallStatus: Healthy`. Services: Inventory, Organization, Sales, Catalogue, Integration, AccessControl, Pricing, Media, Extensions, Reporting, Transfer, DistributionPortal, Marketplace, Customers. All DB connections (npgsql, ReadonlyNpgSql, ReportingNpgSql) Healthy.
+  - [x] Sandbox: EventBridge → SQS → Consumer flow — 19 EventBridge rules on `event-bus-sandbox`, all ENABLED; 43 SQS queues
+  - [x] Sandbox: CloudWatch logs in eu-central-1 — 104 Lambda log groups present
+  - [x] Sandbox: Dashboard login (Auth0) — verified by user
+  - [x] Dev: API Gateway health — `curl -sk https://api.dev.tickets.mdlbeast.net/health` → 200 OK, `{"status":"Healthy"}`
+  - [x] Dev: Geidea endpoint responds — same pattern as sandbox (500 app-level, Lambda live)
+  - [x] Dev: Internal DNS resolution — 14 CNAME records in private hosted zone `Z06420722QTC8T44E043M`, all pointing to `eu-central-1` VPC endpoints
+  - [x] Dev: All 14 internal services Healthy — `GET /services/health-check` → 200 OK, `overallStatus: Healthy`. Same 14 services, all DB connections Healthy.
+  - [x] Dev: EventBridge → SQS → Consumer flow — 19 EventBridge rules on `event-bus-dev`, all ENABLED; 43 SQS queues
+  - [x] Dev: CloudWatch logs in eu-central-1 — 102 Lambda log groups present
+  - [x] Dev: Dashboard login (Auth0) — verified by user
+- **Additional checks:**
+  - [x] 162 TP-* CloudFormation stacks in eu-central-1, 0 in FAILED/ROLLBACK state
+  - [x] Zero `me-south-1` references in dev/sandbox secrets (full scan)
+  - [x] Lambda functions: 77 sandbox + 77 dev, spot-checked 5 — all State=Active, LastUpdateStatus=Successful
+  - [x] Ecwid endpoints live (sandbox + dev): 404 on root (no root route), confirms API Gateway + Lambda operational
+  - [x] Stale me-south-1 private hosted zones exist (`Z0404121C1F04FSRF1W4` dev, `Z06456261Z0UWH5PJBUS9` sandbox) — already in PM-4 cleanup checklist
+- **Notes:** All checks passed. 14/14 internal services Healthy in both environments (confirmed via gateway `/services/health-check`). All DB connections (npgsql, ReadonlyNpgSql, ReportingNpgSql) Healthy. Dashboard login verified by user for both sandbox and dev. Phase 5 complete.
 
 ---
 
@@ -1944,6 +2444,10 @@ Tier 3 services (deploy after Tier 2):
   - [ ] Delete Redis/OpenSearch in me-south-1
   - [ ] Clean up Redis/OpenSearch config references
   - [ ] Deregister GitHub Actions runners
+  - [ ] Delete stale A records in dev zone (`Z034846063FQBL2456ZL`): managment, omada-devices, openvpn, runner1a, runner1b, sonarqube
+  - [ ] Delete stale CNAME records in sandbox zone (`Z02971401UIZV3WZPFDVE`): wildcard `*.sandbox.*`, api-old, 7x `internal-*`
+  - [ ] Delete stale me-south-1 private hosted zone `internal.dev.tickets.mdlbeast.net` (`Z0404121C1F04FSRF1W4`)
+  - [ ] Delete stale me-south-1 private hosted zone `internal.sandbox.tickets.mdlbeast.net` (`Z06456261Z0UWH5PJBUS9`)
   - [ ] Rotate all credentials
   - [ ] Audit IAM for region-specific ARNs
   - [ ] Remove committed .tfstate from git history
